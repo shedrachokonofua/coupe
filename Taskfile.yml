@@ -1,0 +1,25 @@
+version: "3"
+
+tasks:
+  cli:dev:
+    dir: "./cli"
+    cmds:
+      - bun run ./src/index.ts {{.CLI_ARGS}}
+
+  cli:build:
+    dir: "./cli"
+    cmds:
+      - bun build --compile --minify --sourcemap ./index.ts --outfile coupe
+      - mkdir -p build
+      - mv coupe build/coupe
+
+  install:
+    cmds:
+      - task: cli:build
+      - sudo cp ./cli/build/coupe /usr/local/bin/coupe
+      - mkdir -p $HOME/.coupe
+      - cp -r ./templates $HOME/.coupe/templates
+
+  run:
+    cmds:
+      - node build/index.js {{.CLI_ARGS}}
