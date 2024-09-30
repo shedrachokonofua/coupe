@@ -18,7 +18,8 @@ tasks:
       - task: cli:build
       - sudo cp ./cli/build/coupe /usr/local/bin/coupe
       - mkdir -p $HOME/.coupe
-      - cp -r ./templates $HOME/.coupe/templates
+      - rm -rf $HOME/.coupe/templates
+      - cp -r ./templates $HOME/.coupe
 
   run:
     cmds:

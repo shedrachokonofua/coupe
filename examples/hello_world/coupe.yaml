@@ -1,16 +1,24 @@
-name: hello-world
+name: "hello-world"
 http_port: 8080
 functions:
-  - name: hello
-    path: ./hello
-    runtime: rust
+  - name: "hello"
+    path: "./hello"
+    runtime: "rust"
     trigger:
-      type: http
-      route: /hello
-  - name: hola
-    path: ./hola
-    runtime: typescript-node
-    idle_timeout_sec: 60
+      type: "http"
+      route: "/hello"
+  - name: "hola"
+    path: "./hola"
+    runtime: "typescript-node"
+    idle_timeout_secs: 60
     trigger:
-      type: http
-      route: /hola
+      type: "http"
+      route: "/hola"
+  - name: "bonjour"
+    path: "./bonjour"
+    runtime: "rust"
+    trigger:
+      type: "pubsub"
+      subjects:
+        - greetings
+        - salutations

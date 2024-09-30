@@ -28,8 +28,8 @@ An ultralight toolkit for building small, event-driven FaaS applications.
 - [x] Scale to Zero
 - [x] Easy CLI
 - [x] Caddy Reverse Proxy
-- [ ] OpenTelemetry (OTel) Integration
-- [ ] Authn/Authz powered by Keycloak
+- [ ] OpenTelemetry Integration
+- [ ] Authn/Authz: OAuth 2.0, OIDC, ABAC, RBAC
 
 ## Prerequisites
 
@@ -52,7 +52,8 @@ An ultralight toolkit for building small, event-driven FaaS applications.
 ## Commands
 
 - [x] `coupe deploy` - Deploy the current directory
-- [ ] `coupe new <name> <template>` - Create a new project from a template
+- [x] `coupe add <name> <runtime> <trigger>` - Add a new function to the current project with template
+- [ ] `coupe new <name>` - Initialize a new project
 - [ ] `coupe stop` - Stop running deployment for the current directory
 - [ ] `coupe up` - Start stopped deployment for the current directory
 - [ ] `coupe teardown` - Undeploy the current directory

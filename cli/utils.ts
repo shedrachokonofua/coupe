@@ -28,12 +28,18 @@ export const cleanFolder = async (folder: string) => {
   await createFolderIfNotExists(folder);
 };
 
-export const assertPath = async (path: string) => {
+export const doesPathExist = async (path: string) => {
   try {
     await $`test -e ${path}`;
+    return true;
   } catch (e) {
-    console.error(`Path does not exist: ${path}`);
-    process.exit(1);
+    return false;
+  }
+};
+
+export const assertPath = async (path: string) => {
+  if (!(await doesPathExist(path))) {
+    throw new Error(`Path ${path} does not exist.`);
   }
 };
 
@@ -42,6 +48,9 @@ export const getFunctionTemplatePath = (runtime: string, triggerType: string) =>
 
 export const getTriggerTemplatePath = (runtime: string, triggerType: string) =>
   `${getFunctionTemplatePath(runtime, triggerType)}/trigger`;
+
+export const getHandlerTemplatePath = (runtime: string, triggerType: string) =>
+  `${getFunctionTemplatePath(runtime, triggerType)}/handler`;
 
 export const isUniqueArray = (arr: string[]) =>
   new Set(arr).size === arr.length;

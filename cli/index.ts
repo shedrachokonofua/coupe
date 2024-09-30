@@ -14,16 +14,16 @@ if (!command) {
   process.exit(1);
 }
 
-const workspaceSourceDir = (await $`pwd`).text().trim();
-const config = await loadConfig(workspaceSourceDir);
-const context = { config, workspaceSourceDir };
+const sourceDir = (await $`pwd`).text().trim();
+const config = await loadConfig(sourceDir);
+const context = { config, sourceDir };
 
 switch (command) {
   case "deploy":
-    await commands.deploy(context, params);
+    await commands.deploy(context);
     break;
-  case "stop":
-    await commands.stop(context, params);
+  case "add":
+    await commands.add(context, params);
     break;
   default:
     console.error(`Unknown command: ${command}`);
