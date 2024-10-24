@@ -4,31 +4,37 @@ A tiny FaaS framework for building event-driven applications.
 
 ## Features
 
-- Function Languages/Runtimes:
+- Function Runtimes:
 
   - [x] Rust
   - [x] TypeScript (Node.js)
   - [ ] Sveltekit (Node.js + TypeScript)
   - [ ] Java (GraalVM)
 
-- Function Triggers:
+- Triggers:
+
   - [x] HTTP
   - [ ] Async:
     - [x] PubSub
     - [ ] Queue
     - [ ] Stream
     - [ ] Cron
+
 - Message Brokers:
+
   - [x] NATS
   - [ ] Redis
+
 - Build Targets:
+
   - [x] Docker Compose
   - [ ] AWS CloudFormation
+
 - [x] Scale to Zero
 - [x] Easy CLI
 - [x] Caddy Reverse Proxy
 - [ ] OpenTelemetry Integration
-- [ ] Authn/Authz: OAuth 2.0, OIDC, ABAC, RBAC
+- [ ] Auth(n/z): Bring Your Own Identity Provider (BYOIDP) using OAuth 2.0, RBAC, ABAC
 
 ## Prerequisites
 
