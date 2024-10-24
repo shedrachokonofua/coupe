@@ -1,30 +1,29 @@
 # Coupe
 
-An ultralight toolkit for building small, event-driven FaaS applications.
+A tiny FaaS framework for building event-driven applications.
 
 ## Features
 
-- Supported Function Languages/Runtimes:
+- Function Languages/Runtimes:
 
   - [x] Rust
   - [x] TypeScript (Node.js)
-  - [ ] Java (Quarkus)
-  - [ ] Docker
+  - [ ] Sveltekit (Node.js + TypeScript)
+  - [ ] Java (GraalVM)
 
-- Supported Function Triggers:
+- Function Triggers:
   - [x] HTTP
-  - NATS:
-    - [ ] PubSub
+  - [ ] Async:
+    - [x] PubSub
     - [ ] Queue
     - [ ] Stream
-    - [ ] KV Change
-    - [ ] Object Change
     - [ ] Cron
-- Supported Deployment Targets:
+- Message Brokers:
+  - [x] NATS
+  - [ ] Redis
+- Build Targets:
   - [x] Docker Compose
-  - [ ] Docker Swarm
   - [ ] AWS CloudFormation
-  - [ ] Kubernetes
 - [x] Scale to Zero
 - [x] Easy CLI
 - [x] Caddy Reverse Proxy
