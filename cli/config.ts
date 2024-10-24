@@ -6,6 +6,22 @@ import { assertPath, getTriggerTemplatePath } from "./utils";
 
 const NAME_RE = /^[a-z0-9_-]+$/;
 
+const queueSchema = z.object({
+  name: z.string().regex(NAME_RE),
+  subjects: z.array(z.string()).nonempty(),
+  max_age_secs: z.number().optional(),
+  max_num_messages: z.number().optional(),
+  duplicate_window_secs: z.number().optional(),
+});
+
+const streamSchema = z.object({
+  name: z.string().regex(NAME_RE),
+  subjects: z.array(z.string()).nonempty(),
+  max_age_secs: z.number().optional(),
+  max_num_messages: z.number().optional(),
+  duplicate_window_secs: z.number().optional(),
+});
+
 const functionSchema = z.object({
   name: z.string().regex(NAME_RE),
   path: z.string(),
@@ -20,6 +36,16 @@ const functionSchema = z.object({
       type: z.literal("pubsub"),
       subjects: z.array(z.string()).nonempty(),
     }),
+    z.object({
+      type: z.literal("stream"),
+      name: z.string(),
+      batch_size: z.number().optional().default(1),
+    }),
+    z.object({
+      type: z.literal("queue"),
+      name: z.string(),
+      batch_size: z.number().optional().default(1),
+    }),
   ]),
 });
 
@@ -27,6 +53,8 @@ export const schema = z.object({
   name: z.string().regex(NAME_RE),
   http_port: z.number(),
   functions: z.array(functionSchema).nonempty(),
+  queues: z.array(queueSchema).optional(),
+  streams: z.array(streamSchema).optional(),
 });
 
 export type ConfigFileFunction = z.infer<typeof functionSchema>;
@@ -49,6 +77,18 @@ export const loadConfig = async (configPath: string) => {
   return {
     _raw: configJson,
     ...config,
+    queues: config.queues?.map((q) => ({
+      ...q,
+      get natsStreamName() {
+        return `coupe_stack_${config.name}_queue_${q.name}`;
+      },
+    })),
+    streams: config.streams?.map((s) => ({
+      ...s,
+      get natsStreamName() {
+        return `coupe_stack_${config.name}_stream_${s.name}`;
+      },
+    })),
     functions: config.functions.map((f) => ({
       ...f,
       get containerName() {

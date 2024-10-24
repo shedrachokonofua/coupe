@@ -1,5 +1,21 @@
 name: "hello-world"
 http_port: 8080
+queues:
+  - name: "hello-queue"
+    subjects:
+      - "greetings"
+      - "salutations"
+    max_age_secs: 600
+    max_num_messages: 1000
+    duplicate_window_secs: 60
+streams:
+  - name: "hello-stream"
+    subjects:
+      - "greetings"
+      - "salutations"
+    max_age_secs: 600
+    max_num_messages: 1000
+    duplicate_window_secs: 60
 functions:
   - name: "hello"
     path: "./hello"
@@ -20,5 +36,11 @@ functions:
     trigger:
       type: "pubsub"
       subjects:
-        - greetings
-        - salutations
+        - "greetings"
+        - "salutations"
+  - name: "ciao"
+    path: "./ciao"
+    runtime: "rust"
+    trigger:
+      type: "queue"
+      name: "hello-queue"

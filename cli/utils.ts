@@ -56,3 +56,8 @@ export const isUniqueArray = (arr: string[]) =>
   new Set(arr).size === arr.length;
 
 export const dropStartEndSlash = (str: string) => str.replace(/^\/|\/$/g, "");
+
+export const getRandomNumberInRange = (min: number, max: number) =>
+  Math.floor(Math.random() * (max - min + 1)) + min;
+
+export const secsToNanoSecs = (secs: number) => secs * 1e9;

@@ -1,6 +1,7 @@
 import { $ } from "bun";
 import fs from "fs/promises";
 import jsonToYaml from "json-to-pretty-yaml";
+import nats, { RetentionPolicy } from "nats";
 import type { Config } from "./config";
 import {
   assertPath,
@@ -9,6 +10,8 @@ import {
   dropStartEndSlash,
   getFunctionTemplatePath,
   getHandlerTemplatePath,
+  getRandomNumberInRange,
+  secsToNanoSecs,
 } from "./utils";
 import { STACK_DEPLOYMENT_DIR } from "./constants";
 
@@ -95,6 +98,7 @@ export const deploy = async (ctx: CommandContext) => {
     },
   } as any;
 
+  const natsHostPort = getRandomNumberInRange(56000, 57000);
   if (shouldUseNats) {
     Object.assign(dockerComposeJson.services, {
       nats: {
@@ -102,16 +106,15 @@ export const deploy = async (ctx: CommandContext) => {
         image: "nats:latest",
         restart: "unless-stopped",
         profiles: ["platform"],
+        ports: [`${natsHostPort}:4222`],
       },
-      nats_ui: {
-        container_name: `coupe_stack_${ctx.config.name}_nats_ui`,
-        image: "ghcr.io/nats-nui/nui:latest",
-        volumes: ["nats_ui_db:/db"],
+      natscli: {
+        container_name: `coupe_stack_${ctx.config.name}_natscli`,
+        image: "bitnami/natscli:latest",
+        depends_on: ["nats"],
         profiles: ["platform"],
-        ports: ["31311:31311"],
       },
     });
-    dockerComposeJson.volumes.nats_ui_db = null;
   }
 
   for (const f of ctx.config.functions) {
@@ -119,7 +122,7 @@ export const deploy = async (ctx: CommandContext) => {
       container_name: f.containerName,
       build: `./${f.name}`,
       labels: [
-        `sablier.enable=${f.trigger.type !== "pubsub"}`,
+        `sablier.enable=${f.trigger.type === "http"}`,
         `sablier.group=${f.containerName}`,
       ],
       profiles: ["function", f.trigger.type],
@@ -139,6 +142,34 @@ export const deploy = async (ctx: CommandContext) => {
     if (f.trigger.type === "pubsub") {
       Object.assign(dockerComposeJson.services[f.containerName].environment, {
         SUBJECTS: f.trigger.subjects.join(","),
+      });
+    }
+
+    if (f.trigger.type === "stream") {
+      const streamConfig = ctx.config.streams?.find(
+        (s) => "name" in f.trigger && s.name === f.trigger.name
+      );
+      if (!streamConfig) {
+        throw new Error(`Stream ${f.trigger.name} not found in config.`);
+      }
+      Object.assign(dockerComposeJson.services[f.containerName].environment, {
+        STREAM_NAME: f.trigger.name,
+        NATS_STREAM_NAME: streamConfig.natsStreamName,
+        BATCH_SIZE: f.trigger.batch_size,
+      });
+    }
+
+    if (f.trigger.type === "queue") {
+      const queueConfig = ctx.config.queues?.find(
+        (q) => "name" in f.trigger && q.name === f.trigger.name
+      );
+      if (!queueConfig) {
+        throw new Error(`Queue ${f.trigger.name} not found in config.`);
+      }
+      Object.assign(dockerComposeJson.services[f.containerName].environment, {
+        QUEUE_NAME: f.trigger.name,
+        NATS_STREAM_NAME: queueConfig.natsStreamName,
+        BATCH_SIZE: f.trigger.batch_size,
       });
     }
 
@@ -188,6 +219,139 @@ export const deploy = async (ctx: CommandContext) => {
   // Rebuild platform docker containers
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile platform up --build -d`;
 
+  const shouldSetupNatsStreams =
+    (ctx.config.streams || []).length > 0 ||
+    (ctx.config.queues || []).length > 0;
+  // Setup nats streams
+  // if (shouldUseNats && shouldSetupNatsStreams) {
+  //   // Expose port from nats container to the host
+  //   const nc = await nats.connect({
+  //     servers: [`nats://localhost:${natsHostPort}`],
+  //   });
+  //   const jsm = await nc.jetstreamManager();
+
+  //   for (const queue of ctx.config.queues || []) {
+  //     try {
+  //       await jsm.streams.add({
+  //         name: queue.natsStreamName,
+  //         subjects: queue.subjects,
+  //         retention: RetentionPolicy.Workqueue,
+  //         max_msgs: queue.max_num_messages,
+  //         max_age: queue.max_age_secs
+  //           ? secsToNanoSecs(queue.max_age_secs)
+  //           : undefined,
+  //       });
+  //     } catch (error) {
+  //       console.error(
+  //         `Error creating queue ${queue.name}: ${JSON.stringify(
+  //           error
+  //         )}, skipping...`
+  //       );
+  //     }
+  //   }
+
+  //   for (const stream of ctx.config.streams || []) {
+  //     try {
+  //       await jsm.streams.add({
+  //         name: stream.natsStreamName,
+  //         subjects: stream.subjects,
+  //         retention: RetentionPolicy.Limits,
+  //         max_msgs: stream.max_num_messages,
+  //         max_age: stream.max_age_secs
+  //           ? secsToNanoSecs(stream.max_age_secs)
+  //           : undefined,
+  //       });
+  //     } catch (error) {
+  //       console.error(
+  //         `Error creating stream ${stream.name}: ${JSON.stringify(
+  //           error
+  //         )}, skipping...`
+  //       );
+  //     }
+  //   }
+
+  //   for (const f of ctx.config.functions) {
+  //     if (f.trigger.type === "stream" || f.trigger.type === "queue") {
+  //       try {
+  //         await jsm.consumers.add(f.trigger.name, {
+  //           durable_name: f.containerName,
+  //           max_batch: f.trigger.batch_size,
+  //         });
+  //       } catch (error) {
+  //         console.error(
+  //           `Error creating consumer for ${f.trigger.type} ${
+  //             f.trigger.name
+  //           }: ${JSON.stringify(error)}, skipping...`
+  //         );
+  //       }
+  //     }
+  //   }
+
+  //   await nc.close();
+  // }
+  // Setup nats streams using natscli
+  if (shouldUseNats && shouldSetupNatsStreams) {
+    // Wait for the NATS container to be ready
+    // await new Promise((resolve) => setTimeout(resolve, 5000)); // Adjust the wait time as necessary
+
+    for (const queue of ctx.config.queues || []) {
+      try {
+        // Use the NATS CLI container to create the queue
+        await $`docker run --rm --network ${
+          dockerComposeJson.name
+        }_default bitnami/natscli:latest nats stream add ${
+          queue.natsStreamName
+        } --subjects ${queue.subjects.join(
+          ","
+        )} --retention workqueue --max-msgs ${
+          queue.max_num_messages
+        } --max-age ${queue.max_age_secs || 0}s`;
+      } catch (error) {
+        console.error(
+          `Error creating queue ${queue.name}: ${JSON.stringify(
+            error
+          )}, skipping...`
+        );
+      }
+    }
+
+    for (const stream of ctx.config.streams || []) {
+      try {
+        // Use the NATS CLI container to create the stream
+        await $`docker run --rm --network ${
+          dockerComposeJson.name
+        }_default bitnami/natscli:latest nats stream add ${
+          stream.natsStreamName
+        } --subjects ${stream.subjects.join(
+          ","
+        )} --retention limits --max-msgs ${stream.max_num_messages} --max-age ${
+          stream.max_age_secs || 0
+        }s`;
+      } catch (error) {
+        console.error(
+          `Error creating stream ${stream.name}: ${JSON.stringify(
+            error
+          )}, skipping...`
+        );
+      }
+    }
+
+    for (const f of ctx.config.functions) {
+      if (f.trigger.type === "stream" || f.trigger.type === "queue") {
+        try {
+          // Use the NATS CLI container to create the consumer
+          await $`docker run --rm --network ${dockerComposeJson.name}_default bitnami/natscli:latest nats consumer add ${f.trigger.name} ${f.containerName} --max-batch ${f.trigger.batch_size}`;
+        } catch (error) {
+          console.error(
+            `Error creating consumer for ${f.trigger.type} ${
+              f.trigger.name
+            }: ${JSON.stringify(error)}, skipping...`
+          );
+        }
+      }
+    }
+  }
+
   // Build functions docker images
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile function create --build --force-recreate`;
 
@@ -219,7 +383,7 @@ export const add = async (ctx: CommandContext, params: string[]) => {
     runtime,
     trigger: {
       type: trigger,
-      ...(trigger === "http" ? { route: `/${name}` } : { subjects: [] }),
+      ...(trigger === "http" ? { route: `/${name}` } : { name: "" }),
     },
   });
   const configYaml = jsonToYaml.stringify(configJson);
