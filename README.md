@@ -13,12 +13,13 @@ A tiny FaaS framework for building event-driven applications.
 
 - Triggers:
 
-  - [x] HTTP
-  - [ ] Async:
-    - [x] PubSub
-    - [ ] Queue
-    - [ ] Stream
-    - [ ] Cron
+| Trigger/Language | Rust | TypeScript (Node.js) | Sveltekit | Java |
+| --- | --- | --- | --- | --- |
+| HTTP | ✓ | ✓ | ☐ | ✓ |
+| Pub Sub | ✓ | ☐ | N/A | ☐ |
+| Queue | ✓ | ☐ | N/A | ☐ |
+| Stream | ✓ | ☐ | N/A | ☐ |
+| Cron | ☐ | ☐ | N/A | ☐ |
 
 - Message Brokers:
 
