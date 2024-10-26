@@ -9,7 +9,7 @@ use anyhow::Result;
 pub async fn main() -> Result<()> {
     let nats_url = env::var("NATS_URL")?;
     let container_name = env::var("CONTAINER_NAME")?;
-    let stream_name = env::var("STREAM_NAME")?;
+    let stream_name = env::var("NATS_STREAM_NAME")?;
 
     let client = connect(nats_url).await?;
     let js = jetstream::new(client);

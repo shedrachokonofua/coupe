@@ -1,4 +1,4 @@
-import { $ } from "execa";
+import { execa as $ } from "execa";
 import fs from "node:fs/promises";
 import jsonToYaml from "json-to-pretty-yaml";
 import nats, { RetentionPolicy } from "nats";
@@ -14,6 +14,7 @@ import {
   secsToNanoSecs,
 } from "./utils.ts";
 import { STACK_DEPLOYMENT_DIR } from "./constants.ts";
+import { AckPolicy } from "nats";
 
 interface CommandContext {
   config: Config;
@@ -33,11 +34,11 @@ export const deploy = async (ctx: CommandContext) => {
     await cleanFolder(fnBuildDir);
 
     // Copy the template files to the build directory, and remove the template handler
-    await $`cp -r ${templateDir}/* ${fnBuildDir}`;
+    await $`cp -r ${templateDir}/. ${fnBuildDir}`;
     await cleanFolder(handlerBuildDir);
 
     // Copy the source handler to the build directory
-    await $`cp -r ${handlerSourceDir}/* ${fnBuildDir}/handler`;
+    await $`cp -r ${handlerSourceDir}/. ${fnBuildDir}/handler`;
 
     // If .env file exists in the handler build directory, move it into the parent directory
     try {
@@ -104,31 +105,27 @@ export const deploy = async (ctx: CommandContext) => {
       nats: {
         container_name: `coupe_stack_${ctx.config.name}_nats`,
         image: "nats:latest",
+        command: "--js",
         restart: "unless-stopped",
         profiles: ["platform"],
         ports: [`${natsHostPort}:4222`],
-      },
-      natscli: {
-        container_name: `coupe_stack_${ctx.config.name}_natscli`,
-        image: "bitnami/natscli:latest",
-        depends_on: ["nats"],
-        profiles: ["platform"],
       },
     });
   }
 
   for (const f of ctx.config.functions) {
+    const isHttpTrigger = f.trigger.type === "http";
     dockerComposeJson.services[f.containerName] = {
       container_name: f.containerName,
       build: `./${f.name}`,
       labels: [
-        `sablier.enable=${f.trigger.type === "http"}`,
+        `sablier.enable=${isHttpTrigger}`,
         `sablier.group=${f.containerName}`,
       ],
-      profiles: ["function", f.trigger.type],
+      profiles: ["function", f.trigger.type, isHttpTrigger ? "sync" : "async"],
       environment: {
         FUNCTION_NAME: f.name,
-        FUNCTION_CONTAINER_NAME: f.containerName,
+        CONTAINER_NAME: f.containerName,
         IDLE_TIMEOUT_SECS: f.idle_timeout_secs,
       },
     };
@@ -272,10 +269,21 @@ export const deploy = async (ctx: CommandContext) => {
 
     for (const f of ctx.config.functions) {
       if (f.trigger.type === "stream" || f.trigger.type === "queue") {
+        const resourceConfig = (
+          f.trigger.type === "stream" ? ctx.config.streams : ctx.config.queues
+        )?.find((s) => "name" in f.trigger && s.name === f.trigger.name);
+
+        if (!resourceConfig) {
+          throw new Error(
+            `${f.trigger.type} "${f.trigger.name}" not found in config.`
+          );
+        }
+
         try {
-          await jsm.consumers.add(f.trigger.name, {
+          await jsm.consumers.add(resourceConfig.natsStreamName, {
             durable_name: f.containerName,
             max_batch: f.trigger.batch_size,
+            ack_policy: AckPolicy.Explicit,
           });
         } catch (error) {
           console.error(
@@ -293,8 +301,8 @@ export const deploy = async (ctx: CommandContext) => {
   // Build functions docker images
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile function create --build --force-recreate`;
 
-  // Start pubsub trigger functions
-  await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile pubsub up -d`;
+  // Start async trigger functions
+  await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile async up -d`;
 
   await $`echo "Deployment complete!"`;
 };

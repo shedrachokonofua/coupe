@@ -4,12 +4,12 @@ tasks:
   cli:dev:
     dir: "./cli"
     cmds:
-      - deno run --allow-read --allow-write ./src/index.ts {{.CLI_ARGS}}
+      - deno run -A ./src/index.ts {{.CLI_ARGS}}
 
   cli:build:
     dir: "./cli"
     cmds:
-      - deno compile --allow-read --allow-write --output coupe ./index.ts
+      - deno compile -A --output coupe ./index.ts
       - mkdir -p build
       - mv coupe build/coupe
 

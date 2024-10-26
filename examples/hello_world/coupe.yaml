@@ -4,14 +4,12 @@ queues:
   - name: "hello-queue"
     subjects:
       - "greetings"
-      - "salutations"
     max_age_secs: 600
     max_num_messages: 1000
     duplicate_window_secs: 60
 streams:
   - name: "hello-stream"
     subjects:
-      - "greetings"
       - "salutations"
     max_age_secs: 600
     max_num_messages: 1000
