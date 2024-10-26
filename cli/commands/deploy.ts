@@ -1,21 +1,19 @@
 import { $ } from "execa";
 import fs from "node:fs/promises";
+import fse from "fs-extra";
 import jsonToYaml from "json-to-pretty-yaml";
-import nats, { RetentionPolicy, DeliverPolicy } from "nats";
-import type { Config } from "./config.ts";
+import { RetentionPolicy, DeliverPolicy } from "nats";
+import type { Config } from "../config.ts";
 import {
-  assertPath,
   cleanFolder,
-  doesPathExist,
   dropStartEndSlash,
   getFunctionTemplatePath,
-  getHandlerTemplatePath,
   getRandomNumberInRange,
   secsToNanoSecs,
-} from "./utils.ts";
-import { STACK_DEPLOYMENT_DIR } from "./constants.ts";
+} from "../utils.ts";
+import { STACK_DEPLOYMENT_DIR } from "../constants.ts";
 import { AckPolicy } from "nats";
-import { NatsClient } from "./nats.ts";
+import { NatsClient } from "../nats.ts";
 
 interface CommandContext {
   config: Config;
@@ -30,7 +28,7 @@ export const deploy = async (ctx: CommandContext) => {
   for (const f of ctx.config.functions) {
     const templateDir = getFunctionTemplatePath(f.runtime, f.trigger.type);
     const handlerSourceDir = `${ctx.sourceDir}/${f.path}`;
-    const fnBuildDir = `${deploymentDir}/${f.name}`;
+    const fnBuildDir = `${deploymentDir}/functions/${f.name}`;
     const handlerBuildDir = `${fnBuildDir}/handler`;
     await cleanFolder(fnBuildDir);
 
@@ -67,7 +65,10 @@ export const deploy = async (ctx: CommandContext) => {
   }
 
   const shouldUseNats = ctx.config.functions.some(
-    (f) => f.trigger.type === "pubsub"
+    (f) =>
+      f.trigger.type === "pubsub" ||
+      f.trigger.type === "stream" ||
+      f.trigger.type === "queue"
   );
 
   const dockerComposeJson = {
@@ -86,7 +87,7 @@ export const deploy = async (ctx: CommandContext) => {
         ports: [`${ctx.config.http_port}:80`],
         restart: "unless-stopped",
         volumes: [
-          "./Caddyfile:/etc/caddy/Caddyfile",
+          "./platform/caddy/Caddyfile:/etc/caddy/Caddyfile",
           "caddy_data:/data",
           "caddy_config:/config",
         ],
@@ -120,7 +121,7 @@ export const deploy = async (ctx: CommandContext) => {
     const isHttpTrigger = f.trigger.type === "http";
     dockerComposeJson.services[f.containerName] = {
       container_name: f.containerName,
-      build: `./${f.name}`,
+      build: `./functions/${f.name}`,
       labels: [
         `sablier.enable=${isHttpTrigger}`,
         `sablier.group=${f.containerName}`,
@@ -212,9 +213,10 @@ export const deploy = async (ctx: CommandContext) => {
         .join("\n")}
     }
     `;
-  await fs.writeFile(`${deploymentDir}/Caddyfile`, caddyFileContent);
+  const caddyDeploymentDir = `${deploymentDir}/platform/caddy`;
+  await fse.outputFile(`${caddyDeploymentDir}/Caddyfile`, caddyFileContent);
   // Format the Caddyfile
-  await $`docker run --rm -v ${deploymentDir}:/app caddy:2.6.4-with-sablier caddy fmt --overwrite /app/Caddyfile`;
+  await $`docker run --rm -v ${caddyDeploymentDir}:/app caddy:2.6.4-with-sablier caddy fmt --overwrite /app/Caddyfile`;
 
   // Rebuild platform docker containers
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile platform up --build -d`;
@@ -226,45 +228,34 @@ export const deploy = async (ctx: CommandContext) => {
   if (shouldUseNats && shouldSetupNatsStreams) {
     // Expose port from nats container to the host
     const nc = await NatsClient.connect(natsHostPort);
+    const natsStreamConfigs = [];
 
     for (const queue of ctx.config.queues || []) {
-      try {
-        await nc.getOrCreateStream({
-          name: queue.natsStreamName,
-          subjects: queue.subjects,
-          retention: RetentionPolicy.Workqueue,
-          max_msgs: queue.max_num_messages,
-          max_age: queue.max_age_secs
-            ? secsToNanoSecs(queue.max_age_secs)
-            : undefined,
-        });
-      } catch (error) {
-        console.error(
-          `Error creating queue ${queue.name}: ${JSON.stringify(
-            error
-          )}, skipping...`
-        );
-      }
+      natsStreamConfigs.push({
+        name: queue.natsStreamName,
+        subjects: queue.subjects,
+        retention: RetentionPolicy.Workqueue,
+        max_msgs: queue.max_num_messages,
+        max_age: queue.max_age_secs
+          ? secsToNanoSecs(queue.max_age_secs)
+          : undefined,
+      });
     }
 
     for (const stream of ctx.config.streams || []) {
-      try {
-        await nc.getOrCreateStream({
-          name: stream.natsStreamName,
-          subjects: stream.subjects,
-          retention: RetentionPolicy.Limits,
-          max_msgs: stream.max_num_messages,
-          max_age: stream.max_age_secs
-            ? secsToNanoSecs(stream.max_age_secs)
-            : undefined,
-        });
-      } catch (error) {
-        console.error(
-          `Error creating stream ${stream.name}: ${JSON.stringify(
-            error
-          )}, skipping...`
-        );
-      }
+      natsStreamConfigs.push({
+        name: stream.natsStreamName,
+        subjects: stream.subjects,
+        retention: RetentionPolicy.Limits,
+        max_msgs: stream.max_num_messages,
+        max_age: stream.max_age_secs
+          ? secsToNanoSecs(stream.max_age_secs)
+          : undefined,
+      });
+    }
+
+    for (const s of natsStreamConfigs) {
+      await nc.getOrCreateStream(s);
     }
 
     for (const f of ctx.config.functions) {
@@ -279,20 +270,12 @@ export const deploy = async (ctx: CommandContext) => {
           );
         }
 
-        try {
-          await nc.getOrCreateConsumer(resourceConfig.natsStreamName, {
-            durable_name: f.containerName,
-            max_batch: f.trigger.batch_size,
-            ack_policy: AckPolicy.Explicit,
-            deliver_policy: DeliverPolicy.All,
-          });
-        } catch (error) {
-          console.error(
-            `Error creating consumer for ${f.trigger.type} ${
-              f.trigger.name
-            }: ${JSON.stringify(error)}, skipping...`
-          );
-        }
+        await nc.getOrCreateConsumer(resourceConfig.natsStreamName, {
+          durable_name: f.containerName,
+          max_batch: f.trigger.batch_size,
+          ack_policy: AckPolicy.Explicit,
+          deliver_policy: DeliverPolicy.All,
+        });
       }
     }
 
@@ -306,33 +289,4 @@ export const deploy = async (ctx: CommandContext) => {
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile async up -d`;
 
   await $`echo "Deployment complete!"`;
-};
-
-export const add = async (ctx: CommandContext, params: string[]) => {
-  if (params.length !== 3) {
-    throw new Error("Invalid number of arguments");
-  }
-  const [name, runtime, trigger] = params;
-  const templateDir = getHandlerTemplatePath(runtime, trigger);
-  assertPath(templateDir);
-
-  const newFnPath = `${ctx.sourceDir}/${name}`;
-  if (await doesPathExist(newFnPath)) {
-    throw new Error(`Function ${name} already exists.`);
-  }
-
-  await $`cp -r ${templateDir} ${newFnPath}`;
-
-  const configJson = ctx.config._raw as any;
-  configJson.functions.push({
-    name,
-    path: `./${name}`,
-    runtime,
-    trigger: {
-      type: trigger,
-      ...(trigger === "http" ? { route: `/${name}` } : { name: "" }),
-    },
-  });
-  const configYaml = jsonToYaml.stringify(configJson);
-  await fs.writeFile(`${ctx.sourceDir}/coupe.yaml`, configYaml);
 };

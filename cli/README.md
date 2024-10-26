@@ -1,15 +1,13 @@
-# coupe
+# coupe cli
 
 To install dependencies:
 
 ```bash
-bun install
+deno install
 ```
 
 To run:
 
 ```bash
-bun run index.js
+task cli:dev <command>
 ```
-
-This project was created using `bun init` in bun v1.1.29. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.

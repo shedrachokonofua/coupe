@@ -1,6 +1,6 @@
 import { $ } from "execa";
 import { loadConfig } from "./config.ts";
-import * as commands from "./commands.ts";
+import * as commands from "./commands/index.ts";
 
 const [command, ...params] = Deno.args;
 

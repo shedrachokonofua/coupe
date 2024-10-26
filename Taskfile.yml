@@ -4,7 +4,7 @@ tasks:
   cli:dev:
     dir: "./cli"
     cmds:
-      - deno run -A ./src/index.ts {{.CLI_ARGS}}
+      - deno run -A ./index.ts {{.CLI_ARGS}}
 
   cli:build:
     dir: "./cli"
