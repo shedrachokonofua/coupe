@@ -15,6 +15,7 @@ import {
 } from "./utils.ts";
 import { STACK_DEPLOYMENT_DIR } from "./constants.ts";
 import { AckPolicy } from "nats";
+import { NatsClient } from "./nats.ts";
 
 interface CommandContext {
   config: Config;
@@ -44,7 +45,7 @@ export const deploy = async (ctx: CommandContext) => {
     try {
       await $`mv ${handlerBuildDir}/.env ${fnBuildDir}`;
       containersWithEnvFiles.add(f.containerName);
-    } catch (e) {
+    } catch (_e) {
       // Ignore if the file does not exist
       $`echo "No .env file found for function ${f.name}, skipping..."`;
     }
@@ -56,7 +57,7 @@ export const deploy = async (ctx: CommandContext) => {
     // Try to inspect the image
     await $`docker image inspect caddy:2.6.4-with-sablier`;
     console.log("caddy-with-sablier image already exists, skipping build.");
-  } catch (error) {
+  } catch (_e) {
     // If inspection fails, the image doesn't exist, so we build it
     console.log("caddy-with-sablier image not found, building...");
     await $`docker build https://github.com/acouvreur/sablier.git#v1.4.0-beta.3:plugins/caddy \
@@ -105,12 +106,14 @@ export const deploy = async (ctx: CommandContext) => {
       nats: {
         container_name: `coupe_stack_${ctx.config.name}_nats`,
         image: "nats:latest",
-        command: "--js",
+        command: ["--js", "--sd=/data"],
         restart: "unless-stopped",
         profiles: ["platform"],
         ports: [`${natsHostPort}:4222`],
+        volumes: ["nats_data:/data"],
       },
     });
+    dockerComposeJson.volumes.nats_data = null;
   }
 
   for (const f of ctx.config.functions) {
@@ -222,14 +225,11 @@ export const deploy = async (ctx: CommandContext) => {
   // Setup nats streams
   if (shouldUseNats && shouldSetupNatsStreams) {
     // Expose port from nats container to the host
-    const nc = await nats.connect({
-      servers: [`nats://localhost:${natsHostPort}`],
-    });
-    const jsm = await nc.jetstreamManager();
+    const nc = await NatsClient.connect(natsHostPort);
 
     for (const queue of ctx.config.queues || []) {
       try {
-        await jsm.streams.add({
+        await nc.getOrCreateStream({
           name: queue.natsStreamName,
           subjects: queue.subjects,
           retention: RetentionPolicy.Workqueue,
@@ -249,7 +249,7 @@ export const deploy = async (ctx: CommandContext) => {
 
     for (const stream of ctx.config.streams || []) {
       try {
-        await jsm.streams.add({
+        await nc.getOrCreateStream({
           name: stream.natsStreamName,
           subjects: stream.subjects,
           retention: RetentionPolicy.Limits,
@@ -280,7 +280,7 @@ export const deploy = async (ctx: CommandContext) => {
         }
 
         try {
-          await jsm.consumers.add(resourceConfig.natsStreamName, {
+          await nc.getOrCreateConsumer(resourceConfig.natsStreamName, {
             durable_name: f.containerName,
             max_batch: f.trigger.batch_size,
             ack_policy: AckPolicy.Explicit,
