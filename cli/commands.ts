@@ -1,7 +1,7 @@
-import { execa as $ } from "execa";
+import { $ } from "execa";
 import fs from "node:fs/promises";
 import jsonToYaml from "json-to-pretty-yaml";
-import nats, { RetentionPolicy } from "nats";
+import nats, { RetentionPolicy, DeliverPolicy } from "nats";
 import type { Config } from "./config.ts";
 import {
   assertPath,
@@ -284,6 +284,7 @@ export const deploy = async (ctx: CommandContext) => {
             durable_name: f.containerName,
             max_batch: f.trigger.batch_size,
             ack_policy: AckPolicy.Explicit,
+            deliver_policy: DeliverPolicy.All,
           });
         } catch (error) {
           console.error(

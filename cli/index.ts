@@ -1,4 +1,4 @@
-import { execa as $ } from "execa";
+import { $ } from "execa";
 import { loadConfig } from "./config.ts";
 import * as commands from "./commands.ts";
 
