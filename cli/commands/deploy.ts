@@ -103,18 +103,44 @@ export const deploy = async (ctx: CommandContext) => {
 
   const natsHostPort = getRandomNumberInRange(56000, 57000);
   if (shouldUseNats) {
-    Object.assign(dockerComposeJson.services, {
-      nats: {
-        container_name: `coupe_stack_${ctx.config.name}_nats`,
-        image: "nats:latest",
-        command: ["--js", "--sd=/data"],
-        restart: "unless-stopped",
-        profiles: ["platform"],
-        ports: [`${natsHostPort}:4222`],
-        volumes: ["nats_data:/data"],
-      },
-    });
+    dockerComposeJson.services.nats = {
+      container_name: `coupe_stack_${ctx.config.name}_nats`,
+      image: "nats:latest",
+      command: ["--js", "--sd=/data"],
+      restart: "unless-stopped",
+      profiles: ["platform"],
+      ports: [`${natsHostPort}:4222`],
+      volumes: ["nats_data:/data"],
+    };
     dockerComposeJson.volumes.nats_data = null;
+  }
+
+  if (ctx.config.hasConsumerFunctions) {
+    const wakerSubscriptionConfig: Record<string, string[]> = {};
+    for (const f of ctx.config.functions) {
+      if (
+        (f.trigger.type === "queue" || f.trigger.type === "stream") &&
+        f.asyncResourceConfig
+      ) {
+        for (const subject of f.asyncResourceConfig.subjects) {
+          wakerSubscriptionConfig[subject] =
+            wakerSubscriptionConfig[subject] || [];
+          wakerSubscriptionConfig[subject].push(f.containerName);
+        }
+      }
+
+      dockerComposeJson.services.consumer_function_waker = {
+        container_name: `coupe_stack_${ctx.config.name}_consumer_function_waker`,
+        image: "coupe/consumer-function-waker",
+        environment: {
+          NATS_URL: "nats://nats:4222",
+          SUBSCRIPTION_CONFIG: JSON.stringify(wakerSubscriptionConfig),
+        },
+        restart: "unless-stopped",
+        depends_on: ["nats"],
+        profiles: ["platform"],
+      };
+    }
   }
 
   for (const f of ctx.config.functions) {
@@ -191,28 +217,27 @@ export const deploy = async (ctx: CommandContext) => {
     :80 {
       ${ctx.config.functions
         .map((f) => {
-          switch (f.trigger.type) {
-            case "http":
-              return `
-                route /${dropStartEndSlash(f.trigger.route)} {
-                  sablier {
-                    group ${f.containerName}
-                    session_duration ${f.idle_timeout_secs}s
+          const route =
+            f.trigger.type === "http"
+              ? f.trigger.route
+              : `/__coupe/${f.containerName}/wake`;
+          return `
+            route ${route} {
+              sablier {
+                group ${f.containerName}
+                session_duration ${f.idle_timeout_secs}s
 
-                    blocking {
-                      timeout 30s
-                    }
-                  }
-                  reverse_proxy ${f.containerName}
+                blocking {
+                  timeout 30s
                 }
-                `;
-            default:
-              return ``;
-          }
+              }
+              reverse_proxy ${f.containerName}
+            }
+          `;
         })
         .join("\n")}
     }
-    `;
+  `;
   const caddyDeploymentDir = `${deploymentDir}/platform/caddy`;
   await fse.outputFile(`${caddyDeploymentDir}/Caddyfile`, caddyFileContent);
   // Format the Caddyfile
@@ -221,17 +246,13 @@ export const deploy = async (ctx: CommandContext) => {
   // Rebuild platform docker containers
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile platform up --build -d`;
 
-  const shouldSetupNatsStreams =
-    (ctx.config.streams || []).length > 0 ||
-    (ctx.config.queues || []).length > 0;
   // Setup nats streams
-  if (shouldUseNats && shouldSetupNatsStreams) {
+  if (shouldUseNats && ctx.config.hasConsumerFunctions) {
     // Expose port from nats container to the host
     const nc = await NatsClient.connect(natsHostPort);
-    const natsStreamConfigs = [];
 
     for (const queue of ctx.config.queues || []) {
-      natsStreamConfigs.push({
+      await nc.getOrCreateStream({
         name: queue.natsStreamName,
         subjects: queue.subjects,
         retention: RetentionPolicy.Workqueue,
@@ -243,7 +264,7 @@ export const deploy = async (ctx: CommandContext) => {
     }
 
     for (const stream of ctx.config.streams || []) {
-      natsStreamConfigs.push({
+      await nc.getOrCreateStream({
         name: stream.natsStreamName,
         subjects: stream.subjects,
         retention: RetentionPolicy.Limits,
@@ -254,23 +275,12 @@ export const deploy = async (ctx: CommandContext) => {
       });
     }
 
-    for (const s of natsStreamConfigs) {
-      await nc.getOrCreateStream(s);
-    }
-
     for (const f of ctx.config.functions) {
-      if (f.trigger.type === "stream" || f.trigger.type === "queue") {
-        const resourceConfig = (
-          f.trigger.type === "stream" ? ctx.config.streams : ctx.config.queues
-        )?.find((s) => "name" in f.trigger && s.name === f.trigger.name);
-
-        if (!resourceConfig) {
-          throw new Error(
-            `${f.trigger.type} "${f.trigger.name}" not found in config.`
-          );
-        }
-
-        await nc.getOrCreateConsumer(resourceConfig.natsStreamName, {
+      if (
+        (f.trigger.type === "stream" || f.trigger.type === "queue") &&
+        f.natsStreamName
+      ) {
+        await nc.getOrCreateConsumer(f.natsStreamName, {
           durable_name: f.containerName,
           max_batch: f.trigger.batch_size,
           ack_policy: AckPolicy.Explicit,

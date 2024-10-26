@@ -94,7 +94,36 @@ export const loadConfig = async (configPath: string) => {
       get containerName() {
         return `coupe_function_${config.name}_${f.name}`;
       },
+      get natsStreamName() {
+        if (f.trigger.type === "stream") {
+          return `coupe_stack_${config.name}_stream_${f.trigger.name}`;
+        } else if (f.trigger.type === "queue") {
+          return `coupe_stack_${config.name}_queue_${f.trigger.name}`;
+        } else {
+          return null;
+        }
+      },
+      get asyncResourceConfig() {
+        return (
+          f.trigger.type === "stream" ? config.streams : config.queues
+        )?.find((s) => "name" in f.trigger && s.name === f.trigger.name);
+      },
     })),
+    get hasConsumerFunctions() {
+      return (
+        config.functions.find(
+          (f) =>
+            "name" in f.trigger &&
+            (f.trigger.type === "queue" || f.trigger.type === "stream")
+        ) !== undefined
+      );
+    },
+    streamConfigByName(name: string) {
+      return config.streams?.find((s) => s.name === name);
+    },
+    queueConfigByName(name: string) {
+      return config.queues?.find((q) => q.name === name);
+    },
   };
 };
 

@@ -13,6 +13,15 @@ tasks:
       - mkdir -p build
       - mv coupe build/coupe
 
+  platform:consumer_function_waker:build_image:
+    dir: "./platform/consumer-function-waker"
+    cmds:
+      - docker build -t coupe/consumer-function-waker:latest -f ./Dockerfile .
+
+  platform:build_images:
+    cmds:
+      - task: platform:consumer_function_waker:build_image
+
   install:
     cmds:
       - task: cli:build
@@ -20,6 +29,7 @@ tasks:
       - mkdir -p $HOME/.coupe
       - rm -rf $HOME/.coupe/templates
       - cp -r ./templates $HOME/.coupe
+      - task: platform:build_images
 
   run:
     cmds:
