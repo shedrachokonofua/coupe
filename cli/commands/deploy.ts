@@ -149,7 +149,7 @@ export const deploy = async (ctx: CommandContext) => {
       container_name: f.containerName,
       build: `./functions/${f.name}`,
       labels: [
-        `sablier.enable=${isHttpTrigger}`,
+        `sablier.enable=${f.trigger.type !== "pubsub"}`,
         `sablier.group=${f.containerName}`,
       ],
       profiles: ["function", f.trigger.type, isHttpTrigger ? "sync" : "async"],
@@ -217,23 +217,40 @@ export const deploy = async (ctx: CommandContext) => {
     :80 {
       ${ctx.config.functions
         .map((f) => {
-          const route =
-            f.trigger.type === "http"
-              ? f.trigger.route
-              : `/__coupe/${f.containerName}/wake`;
-          return `
-            route ${route} {
-              sablier {
-                group ${f.containerName}
-                session_duration ${f.idle_timeout_secs}s
+          switch (f.trigger.type) {
+            case "http":
+              return `
+                route ${f.trigger.route} {
+                  sablier {
+                    group ${f.containerName}
+                    session_duration ${f.idle_timeout_secs}s
 
-                blocking {
-                  timeout 30s
+                    blocking {
+                      timeout 30s
+                    }
+                  }
+                  reverse_proxy ${f.containerName}
                 }
-              }
-              reverse_proxy ${f.containerName}
-            }
-          `;
+              `;
+            case "queue":
+            case "stream":
+              return `
+                route /__coupe/${f.containerName}/wake {
+                  sablier {
+                    group ${f.containerName}
+                    session_duration ${f.idle_timeout_secs}s
+
+                    blocking {
+                      timeout 30s
+                    }
+                  }
+                  
+                  respond 200
+                }
+              `;
+            default:
+              return "";
+          }
         })
         .join("\n")}
     }
@@ -244,7 +261,7 @@ export const deploy = async (ctx: CommandContext) => {
   await $`docker run --rm -v ${caddyDeploymentDir}:/app caddy:2.6.4-with-sablier caddy fmt --overwrite /app/Caddyfile`;
 
   // Rebuild platform docker containers
-  await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile platform up --build -d`;
+  await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile platform up --build --force-recreate -d`;
 
   // Setup nats streams
   if (shouldUseNats && ctx.config.hasConsumerFunctions) {
@@ -295,8 +312,8 @@ export const deploy = async (ctx: CommandContext) => {
   // Build functions docker images
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile function create --build --force-recreate`;
 
-  // Start async trigger functions
-  await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile async up -d`;
+  // Start pubsub trigger functions
+  await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile pubsub up -d`;
 
   await $`echo "Deployment complete!"`;
 };
