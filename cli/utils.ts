@@ -1,6 +1,6 @@
-import { $ } from "bun";
-import Path from "path";
-import { FUNCTION_TEMPLATES_DIR } from "./constants";
+import { $ } from "execa";
+import Path from "node:path";
+import { FUNCTION_TEMPLATES_DIR } from "./constants.ts";
 
 export const createFolderIfNotExists = async (folder: string) => {
   await $`mkdir -p ${folder}`;

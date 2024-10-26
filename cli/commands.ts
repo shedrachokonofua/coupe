@@ -1,8 +1,8 @@
-import { $ } from "bun";
-import fs from "fs/promises";
+import { $ } from "execa";
+import fs from "node:fs/promises";
 import jsonToYaml from "json-to-pretty-yaml";
 import nats, { RetentionPolicy } from "nats";
-import type { Config } from "./config";
+import type { Config } from "./config.ts";
 import {
   assertPath,
   cleanFolder,
@@ -12,8 +12,8 @@ import {
   getHandlerTemplatePath,
   getRandomNumberInRange,
   secsToNanoSecs,
-} from "./utils";
-import { STACK_DEPLOYMENT_DIR } from "./constants";
+} from "./utils.ts";
+import { STACK_DEPLOYMENT_DIR } from "./constants.ts";
 
 interface CommandContext {
   config: Config;
@@ -223,89 +223,24 @@ export const deploy = async (ctx: CommandContext) => {
     (ctx.config.streams || []).length > 0 ||
     (ctx.config.queues || []).length > 0;
   // Setup nats streams
-  // if (shouldUseNats && shouldSetupNatsStreams) {
-  //   // Expose port from nats container to the host
-  //   const nc = await nats.connect({
-  //     servers: [`nats://localhost:${natsHostPort}`],
-  //   });
-  //   const jsm = await nc.jetstreamManager();
-
-  //   for (const queue of ctx.config.queues || []) {
-  //     try {
-  //       await jsm.streams.add({
-  //         name: queue.natsStreamName,
-  //         subjects: queue.subjects,
-  //         retention: RetentionPolicy.Workqueue,
-  //         max_msgs: queue.max_num_messages,
-  //         max_age: queue.max_age_secs
-  //           ? secsToNanoSecs(queue.max_age_secs)
-  //           : undefined,
-  //       });
-  //     } catch (error) {
-  //       console.error(
-  //         `Error creating queue ${queue.name}: ${JSON.stringify(
-  //           error
-  //         )}, skipping...`
-  //       );
-  //     }
-  //   }
-
-  //   for (const stream of ctx.config.streams || []) {
-  //     try {
-  //       await jsm.streams.add({
-  //         name: stream.natsStreamName,
-  //         subjects: stream.subjects,
-  //         retention: RetentionPolicy.Limits,
-  //         max_msgs: stream.max_num_messages,
-  //         max_age: stream.max_age_secs
-  //           ? secsToNanoSecs(stream.max_age_secs)
-  //           : undefined,
-  //       });
-  //     } catch (error) {
-  //       console.error(
-  //         `Error creating stream ${stream.name}: ${JSON.stringify(
-  //           error
-  //         )}, skipping...`
-  //       );
-  //     }
-  //   }
-
-  //   for (const f of ctx.config.functions) {
-  //     if (f.trigger.type === "stream" || f.trigger.type === "queue") {
-  //       try {
-  //         await jsm.consumers.add(f.trigger.name, {
-  //           durable_name: f.containerName,
-  //           max_batch: f.trigger.batch_size,
-  //         });
-  //       } catch (error) {
-  //         console.error(
-  //           `Error creating consumer for ${f.trigger.type} ${
-  //             f.trigger.name
-  //           }: ${JSON.stringify(error)}, skipping...`
-  //         );
-  //       }
-  //     }
-  //   }
-
-  //   await nc.close();
-  // }
-  // Setup nats streams using natscli
   if (shouldUseNats && shouldSetupNatsStreams) {
-    // Wait for the NATS container to be ready
-    // await new Promise((resolve) => setTimeout(resolve, 5000)); // Adjust the wait time as necessary
+    // Expose port from nats container to the host
+    const nc = await nats.connect({
+      servers: [`nats://localhost:${natsHostPort}`],
+    });
+    const jsm = await nc.jetstreamManager();
 
     for (const queue of ctx.config.queues || []) {
       try {
-        // Use the NATS CLI container to create the queue
-        await $`docker run --rm --network ${
-          dockerComposeJson.name
-        }_default bitnami/natscli:latest nats stream add ${
-          queue.natsStreamName
-        } --subjects ${queue.subjects.join(
-          ","
-        )} --retention workqueue --max-msgs ${
-          queue.max_num_messages
-        } --max-age ${queue.max_age_secs || 0}s`;
+        await jsm.streams.add({
+          name: queue.natsStreamName,
+          subjects: queue.subjects,
+          retention: RetentionPolicy.Workqueue,
+          max_msgs: queue.max_num_messages,
+          max_age: queue.max_age_secs
+            ? secsToNanoSecs(queue.max_age_secs)
+            : undefined,
+        });
       } catch (error) {
         console.error(
           `Error creating queue ${queue.name}: ${JSON.stringify(
@@ -317,16 +252,15 @@ export const deploy = async (ctx: CommandContext) => {
 
     for (const stream of ctx.config.streams || []) {
       try {
-        // Use the NATS CLI container to create the stream
-        await $`docker run --rm --network ${
-          dockerComposeJson.name
-        }_default bitnami/natscli:latest nats stream add ${
-          stream.natsStreamName
-        } --subjects ${stream.subjects.join(
-          ","
-        )} --retention limits --max-msgs ${stream.max_num_messages} --max-age ${
-          stream.max_age_secs || 0
-        }s`;
+        await jsm.streams.add({
+          name: stream.natsStreamName,
+          subjects: stream.subjects,
+          retention: RetentionPolicy.Limits,
+          max_msgs: stream.max_num_messages,
+          max_age: stream.max_age_secs
+            ? secsToNanoSecs(stream.max_age_secs)
+            : undefined,
+        });
       } catch (error) {
         console.error(
           `Error creating stream ${stream.name}: ${JSON.stringify(
@@ -339,8 +273,10 @@ export const deploy = async (ctx: CommandContext) => {
     for (const f of ctx.config.functions) {
       if (f.trigger.type === "stream" || f.trigger.type === "queue") {
         try {
-          // Use the NATS CLI container to create the consumer
-          await $`docker run --rm --network ${dockerComposeJson.name}_default bitnami/natscli:latest nats consumer add ${f.trigger.name} ${f.containerName} --max-batch ${f.trigger.batch_size}`;
+          await jsm.consumers.add(f.trigger.name, {
+            durable_name: f.containerName,
+            max_batch: f.trigger.batch_size,
+          });
         } catch (error) {
           console.error(
             `Error creating consumer for ${f.trigger.type} ${
@@ -350,6 +286,8 @@ export const deploy = async (ctx: CommandContext) => {
         }
       }
     }
+
+    await nc.close();
   }
 
   // Build functions docker images

@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { readFile } from "fs/promises";
-import Path from "path";
+import { readFile } from "node:fs/promises";
+import Path from "node:path";
 import jsYaml from "js-yaml";
-import { assertPath, getTriggerTemplatePath } from "./utils";
+import { assertPath, getTriggerTemplatePath } from "./utils.ts";
 
 const NAME_RE = /^[a-z0-9_-]+$/;
 

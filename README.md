@@ -40,7 +40,7 @@ A tiny FaaS framework for building event-driven applications.
 
 - Docker
 - Docker-Compose
-- Bun
+- Deno
 - Task
 
 ## Installation

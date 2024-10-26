@@ -1,20 +1,15 @@
-import { $ } from "bun";
-import { parseArgs } from "util";
-import { loadConfig } from "./config";
-import * as commands from "./commands";
+import { $ } from "execa";
+import { loadConfig } from "./config.ts";
+import * as commands from "./commands.ts";
 
-const { positionals } = parseArgs({
-  args: Bun.argv,
-  allowPositionals: true,
-});
-const [command, ...params] = positionals.slice(2);
+const [command, ...params] = Deno.args;
 
 if (!command) {
   console.error("No command provided");
-  process.exit(1);
+  Deno.exit(1);
 }
 
-const sourceDir = (await $`pwd`).text().trim();
+const sourceDir = (await $`pwd`).stdout.trim();
 const config = await loadConfig(sourceDir);
 const context = { config, sourceDir };
 
