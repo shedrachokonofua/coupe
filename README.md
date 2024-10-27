@@ -6,20 +6,21 @@ A tiny FaaS framework for building event-driven applications.
 
 - Function Runtimes:
 
-  - [x] Rust
-  - [x] TypeScript (Node.js)
-  - [ ] Sveltekit (Node.js + TypeScript)
-  - [ ] Java (GraalVM)
+  - Rust
+  - TypeScript (Node.js)
+  - Sveltekit (Node.js + TypeScript)
+  - Java (GraalVM)
+  - Clojure (Babashka + GraalVM)
 
 - Triggers:
 
-| Trigger/Language | Rust | TypeScript (Node.js) | Sveltekit | Java |
-| --- | --- | --- | --- | --- |
-| HTTP | ✓ | ✓ | ☐ | ✓ |
-| Pub Sub | ✓ | ☐ | N/A | ☐ |
-| Queue | ✓ | ☐ | N/A | ☐ |
-| Stream | ✓ | ☐ | N/A | ☐ |
-| Cron | ☐ | ☐ | N/A | ☐ |
+| Trigger/Language | Rust | TypeScript (Node.js) | Java | Clojure | Sveltekit |
+| --- | --- | --- | --- | --- | --- |
+| HTTP | ✓ | ✓ | ☐ | ☐ | ☐ |
+| Pub Sub | ✓ | ☐ | ☐ | ☐ | N/A |
+| Queue | ✓ | ☐ | ☐ | ☐ | N/A |
+| Stream | ✓ | ☐ | ☐ | ☐ | N/A |
+| Cron | ☐ | ☐ | ☐ | ☐ | N/A |
 
 - Message Brokers:
 
