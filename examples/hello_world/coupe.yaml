@@ -16,20 +16,17 @@ streams:
     duplicate_window_secs: 60
 functions:
   - name: "hello"
-    path: "./hello"
     runtime: "rust"
     trigger:
       type: "http"
       route: "/hello"
   - name: "hola"
-    path: "./hola"
     runtime: "typescript-node"
     idle_timeout_secs: 60
     trigger:
       type: "http"
       route: "/hola"
   - name: "bonjour"
-    path: "./bonjour"
     runtime: "rust"
     trigger:
       type: "pubsub"
@@ -37,7 +34,6 @@ functions:
         - "greetings"
         - "salutations"
   - name: "ciao"
-    path: "./ciao"
     runtime: "rust"
     trigger:
       type: "queue"

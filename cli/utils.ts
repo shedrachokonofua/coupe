@@ -1,6 +1,10 @@
-import { $ } from "execa";
+import { execa } from "execa";
 import Path from "node:path";
 import { FUNCTION_TEMPLATES_DIR } from "./constants.ts";
+
+export const $ = execa({
+  verbose: "full",
+});
 
 export const createFolderIfNotExists = async (folder: string) => {
   await $`mkdir -p ${folder}`;

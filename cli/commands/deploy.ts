@@ -1,4 +1,4 @@
-import { $ } from "execa";
+import { $ } from "../utils.ts";
 import fs from "node:fs/promises";
 import fse from "fs-extra";
 import jsonToYaml from "json-to-pretty-yaml";
@@ -6,7 +6,6 @@ import { RetentionPolicy, DeliverPolicy } from "nats";
 import type { Config } from "../config.ts";
 import {
   cleanFolder,
-  dropStartEndSlash,
   getFunctionTemplatePath,
   getRandomNumberInRange,
   secsToNanoSecs,
@@ -27,7 +26,7 @@ export const deploy = async (ctx: CommandContext) => {
   // Prepare function build directories
   for (const f of ctx.config.functions) {
     const templateDir = getFunctionTemplatePath(f.runtime, f.trigger.type);
-    const handlerSourceDir = `${ctx.sourceDir}/${f.path}`;
+    const handlerSourceDir = `${ctx.sourceDir}/${f.name}`;
     const fnBuildDir = `${deploymentDir}/functions/${f.name}`;
     const handlerBuildDir = `${fnBuildDir}/handler`;
     await cleanFolder(fnBuildDir);

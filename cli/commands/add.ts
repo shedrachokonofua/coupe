@@ -1,4 +1,4 @@
-import { $ } from "execa";
+import { $ } from "../utils.ts";
 import fs from "node:fs/promises";
 import jsonToYaml from "json-to-pretty-yaml";
 import type { CommandContext } from "../config.ts";
