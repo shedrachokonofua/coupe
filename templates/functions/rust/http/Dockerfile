@@ -15,7 +15,12 @@ RUN cargo build --release --bin trigger
 # Runtime stage
 FROM debian:bullseye-slim
 
-RUN apt-get update && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+  openssl \
+  ca-certificates \
+  poppler-utils \
+  && rm -rf /var/lib/apt/lists/*
+
 
 WORKDIR /usr/local/bin
 
