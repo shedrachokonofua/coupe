@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.77-slim-buster AS builder
+FROM rust:1.82-slim-bullseye AS builder
 
 WORKDIR /usr/src/app
 
@@ -13,7 +13,7 @@ RUN cargo build --release --workspace
 RUN cargo build --release --bin trigger
 
 # Runtime stage
-FROM debian:buster-slim
+FROM debian:bullseye-slim
 
 RUN apt-get update && rm -rf /var/lib/apt/lists/*
 
