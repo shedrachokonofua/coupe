@@ -312,8 +312,10 @@ export const deploy = async (ctx: CommandContext) => {
   // Build functions docker images
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile function create --build --force-recreate`;
 
-  // Start pubsub trigger functions
-  await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile pubsub up -d`;
+  if (ctx.config.functions.some((f) => f.trigger.type === "pubsub")) {
+    // Start pubsub trigger functions
+    await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile pubsub up -d`;
+  }
 
   await $`echo "Deployment complete!"`;
 };

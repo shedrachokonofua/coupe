@@ -1,13 +1,8 @@
 import { $ } from "execa";
 import fs from "node:fs/promises";
 import jsonToYaml from "json-to-pretty-yaml";
-import type { Config } from "../config.ts";
+import type { CommandContext } from "../config.ts";
 import { assertPath, doesPathExist, getHandlerTemplatePath } from "../utils.ts";
-
-interface CommandContext {
-  config: Config;
-  sourceDir: string;
-}
 
 export const add = async (ctx: CommandContext, params: string[]) => {
   if (params.length !== 3) {

@@ -58,6 +58,7 @@ A tiny FaaS framework for building event-driven applications.
 
 ## Commands
 
+- [x] `coupe init <name> [directory]` - Initialize a new project
 - [x] `coupe deploy` - Deploy the current directory
 - [x] `coupe add <name> <runtime> <trigger>` - Add a new function to the current project with template
 - [ ] `coupe new <name>` - Initialize a new project

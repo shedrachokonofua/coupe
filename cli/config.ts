@@ -51,8 +51,8 @@ const functionSchema = z.object({
 
 export const schema = z.object({
   name: z.string().regex(NAME_RE),
-  http_port: z.number(),
-  functions: z.array(functionSchema).nonempty(),
+  http_port: z.number().optional().default(8080),
+  functions: z.array(functionSchema),
   queues: z.array(queueSchema).optional(),
   streams: z.array(streamSchema).optional(),
 });
@@ -130,3 +130,14 @@ export const loadConfig = async (configPath: string) => {
 export type Config = Awaited<ReturnType<typeof loadConfig>>;
 
 export type ConfigFunction = Config["functions"][number];
+
+export interface CommandContext {
+  config: Config;
+  sourceDir: string;
+}
+
+export const getCommandContext = async () => {
+  const sourceDir = Path.resolve(Deno.cwd());
+  const config = await loadConfig(sourceDir);
+  return { config, sourceDir };
+};

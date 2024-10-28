@@ -1,5 +1,4 @@
-import { $ } from "execa";
-import { loadConfig } from "./config.ts";
+import { getCommandContext } from "./config.ts";
 import * as commands from "./commands/index.ts";
 
 const [command, ...params] = Deno.args;
@@ -9,16 +8,15 @@ if (!command) {
   Deno.exit(1);
 }
 
-const sourceDir = (await $`pwd`).stdout.trim();
-const config = await loadConfig(sourceDir);
-const context = { config, sourceDir };
-
 switch (command) {
   case "deploy":
-    await commands.deploy(context);
+    await commands.deploy(await getCommandContext());
     break;
   case "add":
-    await commands.add(context, params);
+    await commands.add(await getCommandContext(), params);
+    break;
+  case "init":
+    await commands.init(params);
     break;
   default:
     console.error(`Unknown command: ${command}`);
