@@ -18,6 +18,9 @@ switch (command) {
   case "init":
     await commands.init(params);
     break;
+  case "scaffold":
+    await commands.scaffold(await getCommandContext());
+    break;
   default:
     console.error(`Unknown command: ${command}`);
     break;

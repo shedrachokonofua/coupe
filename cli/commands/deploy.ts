@@ -26,7 +26,7 @@ export const deploy = async (ctx: CommandContext) => {
   // Prepare function build directories
   for (const f of ctx.config.functions) {
     const templateDir = getFunctionTemplatePath(f.runtime, f.trigger.type);
-    const handlerSourceDir = `${ctx.sourceDir}/${f.name}`;
+    const handlerSourceDir = `${ctx.sourceDir}/functions/${f.name}`;
     const fnBuildDir = `${deploymentDir}/functions/${f.name}`;
     const handlerBuildDir = `${fnBuildDir}/handler`;
     await cleanFolder(fnBuildDir);

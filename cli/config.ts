@@ -22,39 +22,43 @@ const streamSchema = z.object({
   duplicate_window_secs: z.number().optional(),
 });
 
+const triggerSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("http"),
+    route: z.string(),
+  }),
+  z.object({
+    type: z.literal("pubsub"),
+    subjects: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("stream"),
+    name: z.string(),
+    batch_size: z.number().default(1).optional(),
+  }),
+  z.object({
+    type: z.literal("queue"),
+    name: z.string(),
+    batch_size: z.number().default(1).optional(),
+  }),
+]);
+
 const functionSchema = z.object({
   name: z.string().regex(NAME_RE),
   runtime: z.string(),
-  idle_timeout_secs: z.number().optional().default(300),
-  trigger: z.discriminatedUnion("type", [
-    z.object({
-      type: z.literal("http"),
-      route: z.string(),
-    }),
-    z.object({
-      type: z.literal("pubsub"),
-      subjects: z.array(z.string()).nonempty(),
-    }),
-    z.object({
-      type: z.literal("stream"),
-      name: z.string(),
-      batch_size: z.number().optional().default(1),
-    }),
-    z.object({
-      type: z.literal("queue"),
-      name: z.string(),
-      batch_size: z.number().optional().default(1),
-    }),
-  ]),
+  idle_timeout_secs: z.number().default(300).optional(),
+  trigger: triggerSchema,
 });
 
 export const schema = z.object({
   name: z.string().regex(NAME_RE),
-  http_port: z.number().optional().default(8080),
+  http_port: z.number().default(8080).optional(),
   functions: z.array(functionSchema),
   queues: z.array(queueSchema).optional(),
   streams: z.array(streamSchema).optional(),
 });
+
+export type ConfigFileTrigger = z.infer<typeof triggerSchema>;
 
 export type ConfigFileFunction = z.infer<typeof functionSchema>;
 
@@ -69,12 +73,12 @@ export const loadConfig = async (configPath: string) => {
   const config = schema.parse(configJson);
 
   for (const f of config.functions) {
-    await assertPath(Path.resolve(configPath, f.name));
+    await assertPath(Path.resolve(configPath, `functions/${f.name}`));
     await assertPath(getTriggerTemplatePath(f.runtime, f.trigger.type));
   }
 
   return {
-    _raw: configJson,
+    _raw: configJson as ConfigFile,
     ...config,
     queues: config.queues?.map((q) => ({
       ...q,
@@ -135,8 +139,6 @@ export interface CommandContext {
   sourceDir: string;
 }
 
-export const getCommandContext = async () => {
-  const sourceDir = Path.resolve(Deno.cwd());
-  const config = await loadConfig(sourceDir);
-  return { config, sourceDir };
-};
+export const getCommandContext = async (
+  sourceDir = Path.resolve(Deno.cwd())
+) => ({ sourceDir, config: await loadConfig(sourceDir) });

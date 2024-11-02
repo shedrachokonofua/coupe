@@ -35,7 +35,8 @@ A tiny FaaS framework for building event-driven applications.
 - [x] Scale to Zero
 - [x] Easy CLI
 - [x] Caddy Reverse Proxy
-- [ ] OpenTelemetry Integration
+- [ ] OpenTelemetry Integration: Tracing, Metrics, Logging
+- [ ] Pyroscope Integration for continuous profiling
 - [ ] Auth(n/z): Bring Your Own Identity Provider (BYOIDP) using OAuth 2.0, RBAC, ABAC
 
 ## Prerequisites
@@ -59,9 +60,9 @@ A tiny FaaS framework for building event-driven applications.
 ## Commands
 
 - [x] `coupe init <name> [directory]` - Initialize a new project
-- [x] `coupe deploy` - Deploy the current directory
 - [x] `coupe add <name> <runtime> <trigger>` - Add a new function to the current project with template
-- [ ] `coupe new <name>` - Initialize a new project
+- [x] `coupe scaffold` - Restore the necessary directories and packages for the project.
+- [x] `coupe deploy` - Deploy the current directory
 - [ ] `coupe stop` - Stop running deployment for the current directory
 - [ ] `coupe up` - Start stopped deployment for the current directory
 - [ ] `coupe teardown` - Undeploy the current directory
