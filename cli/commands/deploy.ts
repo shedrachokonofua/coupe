@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import fse from "fs-extra";
 import jsonToYaml from "json-to-pretty-yaml";
 import { RetentionPolicy, DeliverPolicy } from "nats";
-import type { Config } from "../config.ts";
+import type { CommandContext } from "../config.ts";
 import {
   cleanFolder,
   getFunctionTemplatePath,
@@ -12,30 +12,35 @@ import {
 } from "../utils.ts";
 import { AckPolicy } from "nats";
 import { NatsClient } from "../nats.ts";
-
-interface CommandContext {
-  config: Config;
-  sourceDir: string;
-}
+import { deleteFolderIfExists } from "../utils.ts";
 
 export const deploy = async (ctx: CommandContext) => {
   const deploymentDir = `${ctx.sourceDir}/build`;
-  const containersWithEnvFiles = new Set();
 
+  // Copy packages
+  await cleanFolder(`${deploymentDir}/packages`);
+  await fse.copy(`${ctx.sourceDir}/packages`, `${deploymentDir}/packages`);
+
+  const containersWithEnvFiles = new Set();
   // Prepare function build directories
   for (const f of ctx.config.functions) {
     const templateDir = getFunctionTemplatePath(f.runtime, f.trigger.type);
     const handlerSourceDir = `${ctx.sourceDir}/functions/${f.name}`;
     const fnBuildDir = `${deploymentDir}/functions/${f.name}`;
     const handlerBuildDir = `${fnBuildDir}/handler`;
+    const fnPackagesDir = `${fnBuildDir}/packages`;
     await cleanFolder(fnBuildDir);
 
     // Copy the template files to the build directory, and remove the template handler
     await $`cp -r ${templateDir}/. ${fnBuildDir}`;
     await cleanFolder(handlerBuildDir);
+    await deleteFolderIfExists(fnPackagesDir);
 
     // Copy the source handler to the build directory
     await $`cp -r ${handlerSourceDir}/. ${fnBuildDir}/handler`;
+
+    // Copy packages
+    await fse.copy(`${ctx.sourceDir}/packages/${f.runtime}`, fnPackagesDir);
 
     // If .env file exists in the handler build directory, move it into the parent directory
     try {
