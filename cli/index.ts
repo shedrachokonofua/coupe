@@ -21,6 +21,9 @@ switch (command) {
   case "scaffold":
     await commands.scaffold(await getCommandContext());
     break;
+  case "teardown":
+    await commands.teardown(await getCommandContext());
+    break;
   default:
     console.error(`Unknown command: ${command}`);
     break;
