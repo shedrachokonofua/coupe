@@ -10,7 +10,6 @@ import {
   getRandomNumberInRange,
   secsToNanoSecs,
 } from "../utils.ts";
-import { STACK_DEPLOYMENT_DIR } from "../constants.ts";
 import { AckPolicy } from "nats";
 import { NatsClient } from "../nats.ts";
 
@@ -20,7 +19,7 @@ interface CommandContext {
 }
 
 export const deploy = async (ctx: CommandContext) => {
-  const deploymentDir = `${STACK_DEPLOYMENT_DIR}/${ctx.config.name}`;
+  const deploymentDir = `${ctx.sourceDir}/build`;
   const containersWithEnvFiles = new Set();
 
   // Prepare function build directories
@@ -243,7 +242,7 @@ export const deploy = async (ctx: CommandContext) => {
                       timeout 30s
                     }
                   }
-                  
+
                   respond 200
                 }
               `;
