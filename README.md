@@ -1,6 +1,6 @@
 # Coupe
 
-A tiny FaaS framework for building event-driven applications.
+A tiny FaaS framework for building polygot event-driven applications without vendor lock-in.
 
 ## Features
 
