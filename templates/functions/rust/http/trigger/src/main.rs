@@ -2,7 +2,11 @@ use handler::handle;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::{ TokioIo, TokioTimer };
-use opentelemetry_semantic_conventions::trace::HTTP_RESPONSE_STATUS_CODE;
+use opentelemetry_semantic_conventions::trace::{
+    HTTP_REQUEST_METHOD,
+    HTTP_RESPONSE_STATUS_CODE,
+    HTTP_ROUTE,
+};
 use std::net::SocketAddr;
 use tokio::{ net::TcpListener, task };
 use coupe_lib::telemetry::Telemetry;
@@ -32,10 +36,17 @@ pub async fn main() -> Result<()> {
                         service_fn(|req| async {
                             let span = info_span!(
                                 "coupe_function_execution",
+                                otel.kind = "SERVER",
+                                otel.status_code = "OK",
+                                { HTTP_ROUTE } = req.uri().path(),
+                                { HTTP_REQUEST_METHOD } = req.method().as_str(),
                                 { HTTP_RESPONSE_STATUS_CODE } = field::Empty
                             );
                             let res = span.in_scope(|| { handle(req) }).await?;
                             span.record(HTTP_RESPONSE_STATUS_CODE, &res.status().as_u16());
+                            if res.status().is_server_error() {
+                                span.record("otel.status_code", "ERROR");
+                            }
                             Ok::<_, anyhow::Error>(res)
                         })
                     ).await
