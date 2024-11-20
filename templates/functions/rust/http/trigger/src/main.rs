@@ -10,7 +10,7 @@ use opentelemetry_semantic_conventions::trace::{
 use std::net::SocketAddr;
 use tokio::{ net::TcpListener, task };
 use coupe_lib::telemetry::Telemetry;
-use tracing::{ field::{ self }, info, info_span };
+use tracing::{ field::{ self }, info, info_span, Instrument };
 use anyhow::Result;
 
 #[tokio::main]
@@ -42,11 +42,12 @@ pub async fn main() -> Result<()> {
                                 { HTTP_REQUEST_METHOD } = req.method().as_str(),
                                 { HTTP_RESPONSE_STATUS_CODE } = field::Empty
                             );
-                            let res = span.in_scope(|| { handle(req) }).await?;
+                            let res = handle(req).instrument(span.clone()).await?;
                             span.record(HTTP_RESPONSE_STATUS_CODE, &res.status().as_u16());
                             if res.status().is_server_error() {
                                 span.record("otel.status_code", "ERROR");
                             }
+
                             Ok::<_, anyhow::Error>(res)
                         })
                     ).await
