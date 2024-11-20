@@ -160,6 +160,8 @@ export const deploy = async (ctx: CommandContext) => {
         FUNCTION_NAME: f.name,
         CONTAINER_NAME: f.containerName,
         IDLE_TIMEOUT_SECS: f.idle_timeout_secs,
+        OTEL_ENDPOINT: ctx.config.otel_endpoint,
+        RUST_LOG: "debug",
       },
     };
 

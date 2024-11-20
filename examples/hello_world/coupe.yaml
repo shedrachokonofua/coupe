@@ -1,5 +1,6 @@
 name: "hello-world"
 http_port: 8080
+otel_endpoint: http://localhost:4317
 queues:
   - name: "hello-queue"
     subjects:

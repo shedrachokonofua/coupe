@@ -33,7 +33,6 @@ export const scaffoldRuntimePackages = async (
         `${PACKAGE_TEMPLATES_DIR}/${runtime}/${pkg}`,
         sourcePackageDir
       );
-      await fse.outputFile(`${sourcePackageDir}/.gitignore`, "node_modules");
     }
   }
 };

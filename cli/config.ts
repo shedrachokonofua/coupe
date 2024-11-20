@@ -53,6 +53,7 @@ const functionSchema = z.object({
 export const schema = z.object({
   name: z.string().regex(NAME_RE),
   http_port: z.number().default(8080).optional(),
+  otel_endpoint: z.string(),
   functions: z.array(functionSchema),
   queues: z.array(queueSchema).optional(),
   streams: z.array(streamSchema).optional(),
