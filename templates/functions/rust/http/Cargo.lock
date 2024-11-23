@@ -1257,9 +1257,11 @@ dependencies = [
  "hyper",
  "hyper-util",
  "opentelemetry",
+ "opentelemetry-http",
  "opentelemetry-semantic-conventions",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]

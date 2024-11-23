@@ -74,6 +74,7 @@ export const deploy = async (ctx: CommandContext) => {
       f.trigger.type === "queue"
   );
 
+  const caddyName = `coupe_stack_${ctx.config.name}_reverse_proxy`;
   const dockerComposeJson = {
     name: `coupe_stack_${ctx.config.name}`,
     services: {
@@ -85,7 +86,7 @@ export const deploy = async (ctx: CommandContext) => {
         profiles: ["platform"],
       },
       caddy: {
-        container_name: `coupe_stack_${ctx.config.name}_caddy`,
+        container_name: caddyName,
         image: "caddy:2.6.4-with-sablier",
         ports: [`${ctx.config.http_port}:80`],
         restart: "unless-stopped",
@@ -96,6 +97,10 @@ export const deploy = async (ctx: CommandContext) => {
         ],
         depends_on: ["sablier"],
         profiles: ["platform"],
+        environment: {
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ctx.config.otel_endpoint,
+          OTEL_SERVICE_NAME: caddyName,
+        },
       },
     },
     volumes: {
@@ -226,6 +231,10 @@ export const deploy = async (ctx: CommandContext) => {
             case "http":
               return `
                 route ${f.trigger.route} {
+                  tracing {
+                    span coupe.http_request
+                  }
+
                   sablier {
                     group ${f.containerName}
                     session_duration ${f.idle_timeout_secs}s
@@ -234,6 +243,7 @@ export const deploy = async (ctx: CommandContext) => {
                       timeout 30s
                     }
                   }
+
                   reverse_proxy ${f.containerName}
                 }
               `;
