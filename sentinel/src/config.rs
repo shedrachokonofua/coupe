@@ -11,7 +11,7 @@ pub struct Args {
     pub nats_url: String,
 
     #[arg(long, required = true)]
-    pub config_path: PathBuf,
+    pub config: PathBuf,
 }
 
 pub static ARGS: Lazy<Args> = Lazy::new(|| Args::parse());
@@ -77,7 +77,7 @@ impl CoupeConfig {
 
 pub static CONFIG: Lazy<CoupeConfig> = Lazy::new(|| {
     let config = Config::builder()
-        .add_source(config::File::from(ARGS.config_path.clone()))
+        .add_source(config::File::from(ARGS.config.clone()))
         .build()
         .expect("Failed to build config");
 

@@ -12,7 +12,7 @@ bincode = "1.3.3"
 bollard = "0.18.1"
 clap = { version = "4.5.21", features = ["derive"] }
 config = "0.14.1"
-coupe-lib = { path = "../../templates/packages/rust/coupe-lib" }
+coupe-lib = { path = "../templates/packages/rust/coupe-lib" }
 futures = "0.3.31"
 jiff = "0.1.14"
 mimalloc = "0.1.43"
