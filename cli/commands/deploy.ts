@@ -85,6 +85,19 @@ export const deploy = async (ctx: CommandContext) => {
         volumes: ["/var/run/docker.sock:/var/run/docker.sock"],
         profiles: ["platform"],
       },
+      sentinel: {
+        container_name: `coupe_stack_${ctx.config.name}_sentinel`,
+        image: "coupe/sentinel",
+        command: [
+          "sentinel",
+          "--config",
+          "/coupe.yaml",
+          "--nats-url",
+          "nats://nats:4222",
+        ],
+        volumes: [`${ctx.sourceDir}/coupe.yaml:/coupe.yaml`],
+        profiles: ["platform"],
+      },
       caddy: {
         container_name: caddyName,
         image: "caddy:2.6.4-with-sablier",
@@ -95,7 +108,7 @@ export const deploy = async (ctx: CommandContext) => {
           "caddy_data:/data",
           "caddy_config:/config",
         ],
-        depends_on: ["sablier"],
+        depends_on: ["sablier", "sentinel"],
         profiles: ["platform"],
         environment: {
           OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ctx.config.otel_endpoint,
@@ -121,34 +134,6 @@ export const deploy = async (ctx: CommandContext) => {
       volumes: ["nats_data:/data"],
     };
     dockerComposeJson.volumes.nats_data = null;
-  }
-
-  if (ctx.config.hasConsumerFunctions) {
-    const wakerSubscriptionConfig: Record<string, string[]> = {};
-    for (const f of ctx.config.functions) {
-      if (
-        (f.trigger.type === "queue" || f.trigger.type === "stream") &&
-        f.asyncResourceConfig
-      ) {
-        for (const subject of f.asyncResourceConfig.subjects) {
-          wakerSubscriptionConfig[subject] =
-            wakerSubscriptionConfig[subject] || [];
-          wakerSubscriptionConfig[subject].push(f.containerName);
-        }
-      }
-
-      dockerComposeJson.services.consumer_function_waker = {
-        container_name: `coupe_stack_${ctx.config.name}_consumer_function_waker`,
-        image: "coupe/consumer-function-waker",
-        environment: {
-          NATS_URL: "nats://nats:4222",
-          SUBSCRIPTION_CONFIG: JSON.stringify(wakerSubscriptionConfig),
-        },
-        restart: "unless-stopped",
-        depends_on: ["nats"],
-        profiles: ["platform"],
-      };
-    }
   }
 
   for (const f of ctx.config.functions) {

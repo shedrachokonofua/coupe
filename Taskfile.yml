@@ -13,14 +13,13 @@ tasks:
       - mkdir -p build
       - mv coupe build/coupe
 
-  platform:consumer_function_waker:build_image:
-    dir: "./platform/consumer-function-waker"
+  platform:sentinel:build_image:
     cmds:
-      - docker build -t coupe/consumer-function-waker:latest -f ./Dockerfile .
+      - docker build -t coupe/sentinel:latest -f ./sentinel/Dockerfile .
 
   platform:build_images:
     cmds:
-      - task: platform:consumer_function_waker:build_image
+      - task: platform:sentinel:build_image
 
   install:
     cmds:

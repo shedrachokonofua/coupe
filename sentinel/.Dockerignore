@@ -1,0 +1,6 @@
+build/
+node_modules/
+target/
+db/
+.git/
+vscode
