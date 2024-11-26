@@ -17,9 +17,15 @@ tasks:
     cmds:
       - docker build -t coupe/sentinel:latest -f ./sentinel/Dockerfile .
 
+  platform:caddy:build_image:
+    dir: "./caddy"
+    cmds:
+      - docker build -t coupe/caddy:latest -f ./Dockerfile .
+
   platform:build_images:
     cmds:
       - task: platform:sentinel:build_image
+      - task: platform:caddy:build_image
 
   install:
     cmds:

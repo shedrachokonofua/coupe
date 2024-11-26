@@ -53,19 +53,6 @@ export const deploy = async (ctx: CommandContext) => {
   }
 
   // Build docker-compose
-  // Build caddy-with-sablier image if it does not exist
-  try {
-    // Try to inspect the image
-    await $`docker image inspect caddy:2.6.4-with-sablier`;
-    console.log("caddy-with-sablier image already exists, skipping build.");
-  } catch (_e) {
-    // If inspection fails, the image doesn't exist, so we build it
-    console.log("caddy-with-sablier image not found, building...");
-    await $`docker build https://github.com/acouvreur/sablier.git#v1.4.0-beta.3:plugins/caddy \
-        --build-arg=CADDY_VERSION=2.6.4 \
-        -t caddy:2.6.4-with-sablier`;
-    console.log("caddy-with-sablier image built successfully.");
-  }
 
   const shouldUseNats = ctx.config.functions.some(
     (f) =>
@@ -78,13 +65,6 @@ export const deploy = async (ctx: CommandContext) => {
   const dockerComposeJson = {
     name: `coupe_stack_${ctx.config.name}`,
     services: {
-      sablier: {
-        container_name: `coupe_stack_${ctx.config.name}_sablier`,
-        image: "coupe/sablier", // Had to make it cold-start faster(https://github.com/acouvreur/sablier/issues/282), cloned it and made some changes -> pc/projects/sablier
-        command: ["start", "--provider.name=docker"],
-        volumes: ["/var/run/docker.sock:/var/run/docker.sock"],
-        profiles: ["platform"],
-      },
       sentinel: {
         container_name: `coupe_stack_${ctx.config.name}_sentinel`,
         image: "coupe/sentinel",
@@ -95,12 +75,15 @@ export const deploy = async (ctx: CommandContext) => {
           "--nats-url",
           "nats://nats:4222",
         ],
-        volumes: [`${ctx.sourceDir}/coupe.yaml:/coupe.yaml`],
+        volumes: [
+          "/var/run/docker.sock:/var/run/docker.sock",
+          `${ctx.sourceDir}/coupe.yaml:/coupe.yaml`,
+        ],
         profiles: ["platform"],
       },
       caddy: {
         container_name: caddyName,
-        image: "caddy:2.6.4-with-sablier",
+        image: "coupe/caddy",
         ports: [`${ctx.config.http_port}:80`],
         restart: "unless-stopped",
         volumes: [
@@ -108,7 +91,7 @@ export const deploy = async (ctx: CommandContext) => {
           "caddy_data:/data",
           "caddy_config:/config",
         ],
-        depends_on: ["sablier", "sentinel"],
+        depends_on: ["sentinel"],
         profiles: ["platform"],
         environment: {
           OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ctx.config.otel_endpoint,
@@ -141,10 +124,6 @@ export const deploy = async (ctx: CommandContext) => {
     dockerComposeJson.services[f.containerName] = {
       container_name: f.containerName,
       build: `./functions/${f.name}`,
-      labels: [
-        `sablier.enable=${f.trigger.type !== "pubsub"}`,
-        `sablier.group=${f.containerName}`,
-      ],
       profiles: ["function", f.trigger.type, isHttpTrigger ? "sync" : "async"],
       environment: {
         FUNCTION_NAME: f.name,
@@ -220,32 +199,12 @@ export const deploy = async (ctx: CommandContext) => {
                     span coupe.http_request
                   }
 
-                  sablier {
-                    group ${f.containerName}
+                  coupe {
+                    function_name ${f.name}
                     session_duration ${f.idle_timeout_secs}s
-
-                    blocking {
-                      timeout 30s
-                    }
                   }
 
                   reverse_proxy ${f.containerName}
-                }
-              `;
-            case "queue":
-            case "stream":
-              return `
-                route /__coupe/${f.containerName}/wake {
-                  sablier {
-                    group ${f.containerName}
-                    session_duration ${f.idle_timeout_secs}s
-
-                    blocking {
-                      timeout 30s
-                    }
-                  }
-
-                  respond 200
                 }
               `;
             default:
@@ -258,7 +217,7 @@ export const deploy = async (ctx: CommandContext) => {
   const caddyDeploymentDir = `${deploymentDir}/platform/caddy`;
   await fse.outputFile(`${caddyDeploymentDir}/Caddyfile`, caddyFileContent);
   // Format the Caddyfile
-  await $`docker run --rm -v ${caddyDeploymentDir}:/app caddy:2.6.4-with-sablier caddy fmt --overwrite /app/Caddyfile`;
+  await $`docker run --rm -v ${caddyDeploymentDir}:/app coupe/caddy caddy fmt --overwrite /app/Caddyfile`;
 
   // Rebuild platform docker containers
   await $`docker-compose -f ${deploymentDir}/docker-compose.yaml --profile platform up --build --force-recreate -d`;
