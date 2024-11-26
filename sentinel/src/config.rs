@@ -7,8 +7,8 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    #[arg(long, required = true)]
-    pub nats_url: String,
+    #[arg(long, required = false)]
+    pub nats_url: Option<String>,
 
     #[arg(long, required = true)]
     pub config: PathBuf,
@@ -64,9 +64,11 @@ pub struct CoupeConfig {
     pub name: String,
     pub http_port: u16,
     pub otel_endpoint: String,
-    pub queues: Vec<Queue>,
-    pub streams: Vec<Stream>,
     pub functions: Vec<Function>,
+    #[serde(default)]
+    pub queues: Vec<Queue>,
+    #[serde(default)]
+    pub streams: Vec<Stream>,
 }
 
 impl CoupeConfig {

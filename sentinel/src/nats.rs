@@ -33,11 +33,16 @@ fn get_subscription_config() -> HashMap<String, Vec<String>> {
     subscription_config
 }
 
+pub fn has_nats_triggers() -> bool {
+    let subscription_config = get_subscription_config();
+    !subscription_config.is_empty()
+}
+
 pub async fn watch_nats_triggers() -> Result<()> {
     let subscription_config = get_subscription_config();
     info!(subscription_config = ?subscription_config, "Built subscription config");
 
-    let client = connect(ARGS.nats_url.clone()).await?;
+    let client = connect(ARGS.nats_url.clone().expect("NATS_URL is required")).await?;
 
     let mut subscriptions: Vec<Subscriber> = Vec::new();
     for subject in subscription_config.keys() {

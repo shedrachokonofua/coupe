@@ -1,7 +1,7 @@
+use fjall::Keyspace;
 use once_cell::sync::Lazy;
-use sled::Db;
 use tracing::error;
-use std::{ env::{ self, current_dir }, fs, path::PathBuf, sync::Arc };
+use std::{ env::{ self, current_dir }, fs, path::PathBuf };
 use anyhow::Result;
 
 fn db_dir() -> Result<PathBuf> {
@@ -18,14 +18,13 @@ fn ensure_db_dir() -> Result<()> {
     )
 }
 
-fn open_db() -> Result<Arc<Db>> {
+fn open_db() -> Result<Keyspace> {
     ensure_db_dir()?;
-    sled::open(db_dir()?)
-        .map(Arc::new)
-        .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))
+    let keyspace = fjall::Config::new(db_dir()?).open()?;
+    Ok(keyspace)
 }
 
-pub static DB: Lazy<Arc<Db>> = Lazy::new(|| {
+pub static DB: Lazy<Keyspace> = Lazy::new(|| {
     open_db()
         .inspect_err(|e| {
             error!("Failed to open database: {}", e);

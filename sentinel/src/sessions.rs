@@ -1,9 +1,10 @@
 use std::time::Duration;
+use fjall::{ PartitionCreateOptions, PartitionHandle };
 use futures::future::try_join_all;
+use named_lock::NamedLock;
 use once_cell::sync::Lazy;
 use serde::{ Deserialize, Serialize };
 use serde_json::{ json, Value };
-use sled::{ IVec, Tree };
 use tokio::time::sleep;
 use bincode::{ serialize, deserialize };
 use anyhow::Result;
@@ -11,8 +12,10 @@ use tracing::{ error, info, instrument };
 use jiff::Timestamp;
 use crate::{ containers::{ ensure_container_running, stop_container, PollConfig }, db::DB };
 
-static SESSION_STORE: Lazy<Tree> = Lazy::new(|| {
-    DB.open_tree("sessions").expect("Failed to open sessions tree")
+static SESSION_STORE: Lazy<PartitionHandle> = Lazy::new(|| {
+    DB.open_partition("sessions", PartitionCreateOptions::default()).expect(
+        "Failed to open sessions tree"
+    )
 });
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,60 +69,22 @@ impl TryInto<Vec<u8>> for Session {
     }
 }
 
-impl TryFrom<IVec> for Session {
-    type Error = anyhow::Error;
-
-    fn try_from(value: IVec) -> Result<Self> {
-        deserialize(&value).map_err(Into::into)
-    }
-}
-
-impl TryInto<IVec> for Session {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<IVec> {
-        serialize(&self).map(IVec::from).map_err(Into::into)
-    }
-}
-
 #[instrument]
 pub async fn save_session(input_session: Session) -> Result<Session> {
-    let new_session = SESSION_STORE.update_and_fetch(
-        input_session.function_name.clone(),
-        |current: Option<&[u8]>| -> Option<Vec<u8>> {
-            let current_session = current.and_then(|current|
-                Session::try_from(current)
-                    .inspect_err(|e| {
-                        error!(error = e.to_string().as_str(), "Failed to deserialize session")
-                    })
-                    .ok()
-            );
-            let next = match current_session {
-                Some(existing) if
-                    !existing.is_expired() &&
-                    existing.ends_at > input_session.ends_at
-                => {
-                    existing
-                }
-                _ => {
-                    info!(
-                        function_name = input_session.function_name.as_str(),
-                        ends_at = input_session.ends_at,
-                        "Saving session"
-                    );
-                    input_session.clone()
-                }
-            };
-            next.try_into()
-                .inspect_err(|e: &anyhow::Error| {
-                    error!(error = e.to_string().as_str(), "Failed to serialize session")
-                })
-                .ok()
+    let lock = NamedLock::create(&format!("session:{}", input_session.function_name.clone()))?;
+    let _guard = lock.lock()?;
+
+    let existing_session = SESSION_STORE.get(input_session.function_name.clone())?;
+    let mut next_session = input_session.clone();
+    if let Some(existing) = existing_session {
+        let existing = Session::try_from(existing.as_ref())?;
+        if !existing.is_expired() && existing.ends_at > input_session.ends_at {
+            next_session = existing;
         }
-    )?
-        .ok_or_else(|| anyhow::anyhow!("Failed to put session"))?
-        .try_into()?;
-    Ok(new_session)
+    }
+    let next_slice: Vec<u8> = next_session.clone().try_into()?;
+    SESSION_STORE.insert(input_session.function_name, next_slice)?;
+    Ok(next_session)
 }
 
 #[instrument]
