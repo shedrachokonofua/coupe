@@ -36,7 +36,7 @@ impl Default for PollConfig {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(30),
-            interval: Duration::from_micros(50),
+            interval: Duration::from_millis(50),
         }
     }
 }
