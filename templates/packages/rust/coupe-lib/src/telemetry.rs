@@ -19,36 +19,50 @@ pub struct Telemetry {
     service_name: String,
 }
 
-impl Telemetry {
-    pub fn init() -> Result<Self> {
-        let endpoint = env::var("OTEL_ENDPOINT")?;
-        let function_name = env::var("FUNCTION_NAME")?;
-        let container_name = env::var("CONTAINER_NAME")?;
+pub struct TelemetryConfig {
+    pub otel_endpoint: String,
+    pub service_name: String,
+    pub container_name: String,
+}
 
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            otel_endpoint: env
+                ::var("OTEL_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:4317".to_string()),
+            service_name: env::var("FUNCTION_NAME").expect("FUNCTION_NAME is required"),
+            container_name: env::var("CONTAINER_NAME").expect("CONTAINER_NAME is required"),
+        }
+    }
+}
+
+impl Telemetry {
+    pub fn init(config: TelemetryConfig) -> Result<Self> {
         let resource = Resource::new(
             vec![
                 KeyValue::new(
                     opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-                    container_name.clone()
-                ),
-                KeyValue::new(
-                    opentelemetry_semantic_conventions::resource::FAAS_NAME,
-                    function_name.clone()
+                    config.service_name.clone()
                 ),
                 KeyValue::new(
                     opentelemetry_semantic_conventions::resource::CONTAINER_NAME,
-                    container_name.clone()
+                    config.container_name.clone()
                 )
             ]
         );
         global::set_text_map_propagator(TraceContextPropagator::new());
 
-        let tracer = Self::init_tracer(&endpoint, &function_name, resource.clone())?;
-        let logger_provider = Self::init_logger_provider(&endpoint, resource)?;
+        let tracer = Self::init_tracer(
+            &config.otel_endpoint,
+            &config.service_name,
+            resource.clone()
+        )?;
+        let logger_provider = Self::init_logger_provider(&config.otel_endpoint, resource)?;
         Self::init_tracing_subscriber(tracer, logger_provider)?;
 
         Ok(Self {
-            service_name: function_name,
+            service_name: config.service_name,
         })
     }
 

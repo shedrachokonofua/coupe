@@ -12,13 +12,13 @@ use opentelemetry_semantic_conventions::trace::{
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use std::net::SocketAddr;
 use tokio::{ net::TcpListener, task };
-use coupe_lib::telemetry::Telemetry;
+use coupe_lib::telemetry::{ Telemetry, TelemetryConfig };
 use tracing::{ field::{ self }, info, info_span, Instrument };
 use anyhow::Result;
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
-    Telemetry::init()?;
+    Telemetry::init(TelemetryConfig::default())?;
 
     // This address is localhost
     let addr: SocketAddr = ([0, 0, 0, 0], 80).into();
