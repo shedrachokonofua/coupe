@@ -32,11 +32,18 @@ A tiny FaaS framework for building polygot event-driven applications without ven
   - [x] Docker Compose
   - [ ] AWS CloudFormation
 
+- Observability (Powered by OpenTelemetry and Pyroscope):
+
+| Type/Language | Rust | TypeScript (Node.js) | Java | Clojure | Sveltekit |
+| --- | --- | --- | --- | --- | --- |
+| Tracing | ✓ | ☐ | ☐ | ☐ | ☐ |
+| Metrics | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Logging | ✓ | ☐ | ☐ | ☐ | ☐ |
+| Profiling | ☐ | ☐ | ☐ | ☐ | ☐ |
+
 - [x] Scale to Zero
 - [x] Easy CLI
 - [x] Caddy Reverse Proxy
-- [ ] OpenTelemetry Integration: Tracing, Metrics, Logging
-- [ ] Pyroscope Integration for continuous profiling
 - [ ] Auth(n/z): Bring Your Own Identity Provider (BYOIDP) using OAuth 2.0, RBAC, ABAC
 
 ## Prerequisites
