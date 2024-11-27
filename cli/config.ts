@@ -46,7 +46,7 @@ const triggerSchema = z.discriminatedUnion("type", [
 const functionSchema = z.object({
   name: z.string().regex(NAME_RE),
   runtime: z.string(),
-  idle_timeout_secs: z.number().default(300).optional(),
+  session_duration: z.number().default(300).optional(),
   trigger: triggerSchema,
 });
 

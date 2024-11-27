@@ -23,7 +23,7 @@ functions:
       route: "/hello"
   - name: "hola"
     runtime: "typescript-node"
-    idle_timeout_secs: 60
+    session_duration: 60
     trigger:
       type: "http"
       route: "/hola"

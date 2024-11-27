@@ -128,7 +128,7 @@ export const deploy = async (ctx: CommandContext) => {
       environment: {
         FUNCTION_NAME: f.name,
         CONTAINER_NAME: f.containerName,
-        IDLE_TIMEOUT_SECS: f.idle_timeout_secs,
+        SESSION_DURATION: f.session_duration,
         OTEL_ENDPOINT: ctx.config.otel_endpoint,
         RUST_LOG: "debug",
       },
@@ -201,7 +201,7 @@ export const deploy = async (ctx: CommandContext) => {
 
                   coupe {
                     function_name ${f.name}
-                    session_duration ${f.idle_timeout_secs}s
+                    session_duration ${f.session_duration}s
                   }
 
                   reverse_proxy ${f.containerName}

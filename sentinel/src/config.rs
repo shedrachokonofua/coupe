@@ -55,7 +55,7 @@ pub enum Trigger {
 pub struct Function {
     pub name: String,
     pub runtime: String,
-    pub idle_timeout_secs: Option<u64>,
+    pub session_duration: Option<u64>,
     pub trigger: Trigger,
 }
 
