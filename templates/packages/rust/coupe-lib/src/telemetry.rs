@@ -1,24 +1,26 @@
 use opentelemetry::{ global::{ self, BoxedTracer }, KeyValue };
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_otlp::{ LogExporter, SpanExporter, WithExportConfig };
+use opentelemetry_otlp::{ LogExporter, MetricExporter, SpanExporter, WithExportConfig };
 use opentelemetry::trace::TracerProvider as _;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use opentelemetry_sdk::{
     logs::LoggerProvider,
+    metrics::{ PeriodicReader, SdkMeterProvider },
     propagation::TraceContextPropagator,
-    runtime::Tokio,
+    runtime::{ self, Tokio },
     trace::{ Config, Tracer, TracerProvider },
     Resource,
 };
 use tracing_subscriber::{ prelude::*, EnvFilter, Registry };
 use anyhow::Result;
-use std::env;
+use std::{ env, time::Duration };
 
 pub struct Telemetry {
     service_name: String,
 }
 
+#[derive(Clone)]
 pub struct TelemetryConfig {
     pub otel_endpoint: String,
     pub service_name: String,
@@ -37,20 +39,26 @@ impl Default for TelemetryConfig {
     }
 }
 
-impl Telemetry {
-    pub fn init(config: TelemetryConfig) -> Result<Self> {
-        let resource = Resource::new(
+impl Into<Resource> for TelemetryConfig {
+    fn into(self) -> Resource {
+        Resource::new(
             vec![
                 KeyValue::new(
                     opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-                    config.service_name.clone()
+                    self.service_name.clone()
                 ),
                 KeyValue::new(
                     opentelemetry_semantic_conventions::resource::CONTAINER_NAME,
-                    config.container_name.clone()
+                    self.container_name.clone()
                 )
             ]
-        );
+        )
+    }
+}
+
+impl Telemetry {
+    pub fn init(config: TelemetryConfig) -> Result<Self> {
+        let resource = Into::<Resource>::into(config.clone());
         global::set_text_map_propagator(TraceContextPropagator::new());
 
         let tracer = Self::init_tracer(
@@ -58,8 +66,9 @@ impl Telemetry {
             &config.service_name,
             resource.clone()
         )?;
-        let logger_provider = Self::init_logger_provider(&config.otel_endpoint, resource)?;
+        let logger_provider = Self::init_logger_provider(&config.otel_endpoint, resource.clone())?;
         Self::init_tracing_subscriber(tracer, logger_provider)?;
+        Self::init_metrics_provider(&config.otel_endpoint, resource)?;
 
         Ok(Self {
             service_name: config.service_name,
@@ -89,6 +98,21 @@ impl Telemetry {
             .build();
 
         Ok(logger_provider)
+    }
+
+    pub fn init_metrics_provider(endpoint: &str, resource: Resource) -> Result<SdkMeterProvider> {
+        let exporter = MetricExporter::builder().with_tonic().with_endpoint(endpoint).build()?;
+        let reader = PeriodicReader::builder(exporter, runtime::Tokio)
+            .with_interval(Duration::from_secs(1))
+            .build();
+        let provider = SdkMeterProvider::builder()
+            .with_resource(resource)
+            .with_reader(reader)
+            .build();
+
+        global::set_meter_provider(provider.clone());
+
+        Ok(provider)
     }
 
     fn init_tracing_subscriber(tracer: Tracer, logger_provider: LoggerProvider) -> Result<()> {

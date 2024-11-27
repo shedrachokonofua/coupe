@@ -37,7 +37,7 @@ A tiny FaaS framework for building polygot event-driven applications without ven
 | Type/Language | Rust | TypeScript (Node.js) | Java | Clojure | Sveltekit |
 | --- | --- | --- | --- | --- | --- |
 | Tracing | ✓ | ☐ | ☐ | ☐ | ☐ |
-| Metrics | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Metrics | ✓ | ☐ | ☐ | ☐ | ☐ |
 | Logging | ✓ | ☐ | ☐ | ☐ | ☐ |
 | Profiling | ☐ | ☐ | ☐ | ☐ | ☐ |
 

@@ -60,17 +60,21 @@ async fn poll_until_container_running(name: &str, poll_config: PollConfig) -> Re
     Err(SentinelError::ContainerStartupTimeout(name.to_string()).into())
 }
 
+/**
+ * Ensure that the container is running. If the container is not running, start it.
+ * Returns true if the container was started, false if it was already running.
+ */
 #[instrument]
 pub async fn ensure_container_running(
     function_name: String,
     poll_config: PollConfig
-) -> Result<()> {
+) -> Result<bool> {
     let status = get_container_status(function_name.clone()).await?.ok_or_else(||
         SentinelError::ContainerNotFound(function_name.clone())
     )?;
 
     match status {
-        ContainerStateStatusEnum::RUNNING => Ok(()),
+        ContainerStateStatusEnum::RUNNING => Ok(false),
         ContainerStateStatusEnum::EMPTY | ContainerStateStatusEnum::REMOVING => {
             Err(SentinelError::ContainerNotFound(function_name).into())
         }
@@ -82,16 +86,19 @@ pub async fn ensure_container_running(
                 &CONFIG.function_container_name(&function_name),
                 None
             ).instrument(info_span!("start_container")).await?;
-            poll_until_container_running(&function_name, poll_config).await
+            poll_until_container_running(&function_name, poll_config).await?;
+            Ok(true)
         }
         ContainerStateStatusEnum::PAUSED => {
             DOCKER.unpause_container(&CONFIG.function_container_name(&function_name)).instrument(
                 info_span!("unpause_container")
             ).await?;
-            poll_until_container_running(&function_name, poll_config).await
+            poll_until_container_running(&function_name, poll_config).await?;
+            Ok(true)
         }
         ContainerStateStatusEnum::RESTARTING => {
-            poll_until_container_running(&function_name, poll_config).await
+            poll_until_container_running(&function_name, poll_config).await?;
+            Ok(true)
         }
     }
 }

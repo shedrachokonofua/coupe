@@ -1,0 +1,16 @@
+name: "n8n-helpers"
+http_port: 56789
+otel_endpoint: "http://pc:4317"
+functions:
+  - name: "png-diff"
+    runtime: "rust"
+    idle_timeout_secs: 60
+    trigger:
+      type: "http"
+      route: "/png-diff"
+  - name: "pdf-to-png"
+    runtime: "rust"
+    idle_timeout_secs: 60
+    trigger:
+      type: "http"
+      route: "/pdf-to-png"

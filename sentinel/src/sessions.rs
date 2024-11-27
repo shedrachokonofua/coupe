@@ -1,21 +1,46 @@
-use std::time::Duration;
+use std::{ collections::HashMap, time::Duration };
+use coupe_lib::{ metrics::CoupeFunctionMetrics, telemetry::{ Telemetry, TelemetryConfig } };
 use fjall::{ PartitionCreateOptions, PartitionHandle };
 use futures::future::try_join_all;
 use named_lock::NamedLock;
 use once_cell::sync::Lazy;
 use serde::{ Deserialize, Serialize };
 use serde_json::{ json, Value };
-use tokio::time::sleep;
+use tokio::time::{ sleep, Instant };
 use bincode::{ serialize, deserialize };
 use anyhow::Result;
 use tracing::{ error, info, instrument };
 use jiff::Timestamp;
-use crate::{ containers::{ ensure_container_running, stop_container, PollConfig }, db::DB };
+use crate::{
+    config::CONFIG,
+    containers::{ ensure_container_running, stop_container, PollConfig },
+    db::DB,
+};
+use opentelemetry::metrics::MeterProvider;
 
 static SESSION_STORE: Lazy<PartitionHandle> = Lazy::new(|| {
     DB.open_partition("sessions", PartitionCreateOptions::default()).expect(
         "Failed to open sessions tree"
     )
+});
+
+static FUNCTION_METRICS: Lazy<HashMap<String, CoupeFunctionMetrics>> = Lazy::new(|| {
+    let mut function_metrics = HashMap::new();
+    for function in &CONFIG.functions {
+        let function_name = function.name.clone();
+        let function_telemetry_config = TelemetryConfig {
+            otel_endpoint: CONFIG.otel_endpoint.clone(),
+            service_name: function_name.clone(),
+            container_name: CONFIG.function_container_name(&function_name),
+        };
+        let metric_provider = Telemetry::init_metrics_provider(
+            &function_telemetry_config.otel_endpoint.clone(),
+            function_telemetry_config.into()
+        ).expect("Failed to initialize metrics provider");
+        let meter = metric_provider.meter("coupe/sentinel");
+        function_metrics.insert(function_name.clone(), CoupeFunctionMetrics::new(meter));
+    }
+    function_metrics
 });
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +152,19 @@ pub async fn get_expired_sessions() -> Result<Vec<Session>> {
 }
 
 #[instrument]
+async fn record_function_init(
+    function_name: String,
+    duration: Duration,
+    is_cold_start: bool
+) -> Result<()> {
+    let function_metrics = FUNCTION_METRICS.get(&function_name).expect(
+        "Function metrics not found"
+    );
+    function_metrics.record_init(duration, is_cold_start, &[]);
+    Ok(())
+}
+
+#[instrument]
 pub async fn start_session(
     function_name: String,
     session_duration: Duration,
@@ -137,8 +175,12 @@ pub async fn start_session(
         duration = session_duration.as_secs(),
         "Starting session"
     );
-    ensure_container_running(function_name.clone(), status_poll_config).await?;
-    save_session(Session::new(function_name, session_duration)).await
+    let start = Instant::now();
+    let coldstarted = ensure_container_running(function_name.clone(), status_poll_config).await?;
+    let session = save_session(Session::new(function_name.clone(), session_duration)).await?;
+    let elapsed = Instant::now() - start;
+    record_function_init(function_name, elapsed, coldstarted).await?;
+    Ok(session)
 }
 
 #[instrument]
