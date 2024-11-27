@@ -24,5 +24,6 @@ serde = "1.0.215"
 serde_json = "1.0.133"
 thiserror = "2.0.3"
 tokio = { version = "1", features = ["full"] }
+tower = "0.5.1"
 tracing = "0.1.40"
 tracing-opentelemetry = "0.28.0"

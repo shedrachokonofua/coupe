@@ -8,6 +8,7 @@ use crate::sessions::{ get_all_sessions, start_session };
 use tokio::net::TcpListener;
 use axum_tracing_opentelemetry::middleware::{ OtelAxumLayer, OtelInResponseLayer };
 use tracing::instrument;
+use tower::ServiceBuilder;
 
 #[instrument]
 async fn health() -> impl IntoResponse {
@@ -50,8 +51,6 @@ async fn handle_start_session(Json(payload): Json<PostSessionRequest>) -> impl I
         }
     }
 }
-
-#[instrument]
 
 #[instrument]
 async fn handle_get_sessions() -> impl IntoResponse {
@@ -116,8 +115,11 @@ fn router() -> Router {
 
 pub async fn start_api() -> Result<()> {
     let app = router()
-        .layer(OtelInResponseLayer::default())
-        .layer(OtelAxumLayer::default())
+        .layer(
+            ServiceBuilder::new()
+                .layer(OtelAxumLayer::default())
+                .layer(OtelInResponseLayer::default())
+        )
         .into_make_service();
     let listener = TcpListener::bind("0.0.0.0:8081").await?;
     serve(listener, app).await?;

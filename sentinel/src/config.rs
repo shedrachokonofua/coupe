@@ -10,7 +10,7 @@ pub struct Args {
     #[arg(long, required = false)]
     pub nats_url: Option<String>,
 
-    #[arg(long, required = true)]
+    #[arg(long, required = false, default_value = "./coupe.yaml")]
     pub config: PathBuf,
 }
 
@@ -72,6 +72,10 @@ pub struct CoupeConfig {
 }
 
 impl CoupeConfig {
+    pub fn sentinel_container_name(&self) -> String {
+        format!("coupe_stack_{}_sentinel", self.name)
+    }
+
     pub fn function_container_name(&self, function_name: &str) -> String {
         format!("coupe_function_{}_{}", self.name, function_name)
     }

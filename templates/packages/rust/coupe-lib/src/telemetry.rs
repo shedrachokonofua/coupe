@@ -93,15 +93,17 @@ impl Telemetry {
 
     fn init_tracing_subscriber(tracer: Tracer, logger_provider: LoggerProvider) -> Result<()> {
         let tracing_bridge = OpenTelemetryTracingBridge::new(&logger_provider);
-        let filter = EnvFilter::new("debug")
+        let filter = EnvFilter::new("info")
             .add_directive("hyper=error".parse()?)
             .add_directive("tonic=error".parse()?)
             .add_directive("h2=error".parse()?)
             .add_directive("tower=error".parse()?)
-            .add_directive("reqwest=error".parse()?);
+            .add_directive("reqwest=error".parse()?)
+            .add_directive("otel::tracing=trace".parse()?)
+            .add_directive("otel=debug".parse()?);
         Registry::default()
             .with(filter)
-            .with(OpenTelemetryLayer::new(tracer))
+            .with(OpenTelemetryLayer::new(tracer).with_error_events_to_exceptions(true))
             .with(tracing_bridge)
             .init();
         Ok(())

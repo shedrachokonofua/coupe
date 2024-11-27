@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
     Telemetry::init(TelemetryConfig {
         otel_endpoint: CONFIG.otel_endpoint.clone(),
         service_name: "sentinel".to_string(),
-        container_name: "sentinel".to_string(),
+        container_name: CONFIG.sentinel_container_name(),
     })?;
     spawn(async {
         watch_sessions().await.expect("Failed to watch sessions");

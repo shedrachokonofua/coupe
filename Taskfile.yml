@@ -13,19 +13,19 @@ tasks:
       - mkdir -p build
       - mv coupe build/coupe
 
-  platform:sentinel:build_image:
+  sentinel:build_image:
     cmds:
       - docker build -t coupe/sentinel:latest -f ./sentinel/Dockerfile .
 
-  platform:caddy:build_image:
+  caddy:build_image:
     dir: "./caddy"
     cmds:
       - docker build -t coupe/caddy:latest -f ./Dockerfile .
 
-  platform:build_images:
+  build_images:
     cmds:
-      - task: platform:sentinel:build_image
-      - task: platform:caddy:build_image
+      - task: sentinel:build_image
+      - task: caddy:build_image
 
   install:
     cmds:
@@ -34,7 +34,7 @@ tasks:
       - mkdir -p $HOME/.coupe
       - rm -rf $HOME/.coupe/templates
       - cp -r ./templates $HOME/.coupe
-      - task: platform:build_images
+      - task: build_images
 
   run:
     cmds:
