@@ -9,6 +9,7 @@ tasks:
   cli:build:
     dir: "./cli"
     cmds:
+      - deno install
       - deno compile -A --output coupe ./index.ts
       - mkdir -p build
       - mv coupe build/coupe
