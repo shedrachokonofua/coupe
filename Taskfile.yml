@@ -1,42 +1,17 @@
-version: "3"
-
+version: 3
 tasks:
-  cli:dev:
-    dir: "./cli"
+  lint:
     cmds:
-      - deno run -A ./index.ts {{.CLI_ARGS}}
-
-  cli:build:
-    dir: "./cli"
+      - cargo clippy --all-targets --all-features -- -D warnings
+  format:
     cmds:
-      - deno install
-      - deno compile -A --output coupe ./index.ts
-      - mkdir -p build
-      - mv coupe build/coupe
-
-  sentinel:build_image:
+      - cargo fmt --all -- --check
+  fix:lint:
     cmds:
-      - docker build -t coupe/sentinel:latest -f ./sentinel/Dockerfile .
-
-  caddy:build_image:
-    dir: "./caddy"
+      - cargo clippy --all-targets --all-features --fix -- -D warnings
+  fix:format:
     cmds:
-      - docker build -t coupe/caddy:latest -f ./Dockerfile .
-
-  build_images:
+      - cargo fmt --all
+  install:cli:
     cmds:
-      - task: sentinel:build_image
-      - task: caddy:build_image
-
-  install:
-    cmds:
-      - task: cli:build
-      - sudo cp ./cli/build/coupe /usr/local/bin/coupe
-      - mkdir -p $HOME/.coupe
-      - rm -rf $HOME/.coupe/templates
-      - cp -r ./templates $HOME/.coupe
-      - task: build_images
-
-  run:
-    cmds:
-      - node build/index.js {{.CLI_ARGS}}
+      - cargo install --path coupe-cli
