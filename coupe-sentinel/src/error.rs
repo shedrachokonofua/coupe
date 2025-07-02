@@ -4,15 +4,9 @@ pub type Result<T> = std::result::Result<T, AppError>;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
     #[error("Configuration error: {0}")]
     Config(String),
 
-    #[error("Invalid input: {0}")]
-    InvalidInput(String),
-
-    #[error("Docker error: {0}")]
-    Docker(String),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }

@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::error::AppError;
-use coupe_config::Config;
+use coupe::Config;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -36,7 +36,9 @@ pub async fn execute(name: String, path: Option<String>) -> Result<()> {
     };
 
     let config_path = project_path.join("coupe.yaml");
-    let yaml_content = serde_yaml::to_string(&config)?;
+    let yaml_content = config
+        .to_yaml()
+        .map_err(|e| AppError::Config(e.to_string()))?;
     fs::write(&config_path, yaml_content)?;
 
     println!("✓ Created project directory: {}", project_path.display());

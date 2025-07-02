@@ -15,3 +15,6 @@ tasks:
   install:cli:
     cmds:
       - cargo install --path coupe-cli
+  release:sentinel:
+    cmds:
+      - docker build -t coupe/sentinel:latest -f coupe-sentinel/Dockerfile .

@@ -1,0 +1,5 @@
+# Ignore rust build artifacts
+target/
+
+# Ignore git directory
+.git

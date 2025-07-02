@@ -20,5 +20,14 @@ pub enum Commands {
     Deploy {
         #[arg(short, long, help = "Path to the coupe.yaml file")]
         path: Option<String>,
+        #[arg(short, long, help = "Remote host to deploy to")]
+        remote: Option<String>,
+    },
+    #[command(about = "Remove a deployed coupe stack")]
+    Teardown {
+        #[arg(short, long, help = "Path to the coupe.yaml file")]
+        path: Option<String>,
+        #[arg(short, long, help = "Remote host to teardown")]
+        remote: Option<String>,
     },
 }

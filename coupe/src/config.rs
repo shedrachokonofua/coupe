@@ -1,6 +1,7 @@
+use crate::{CoupeError, Result};
 use openapi::{Operations, Schema};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -106,8 +107,18 @@ pub struct Function {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerRegistry {
+    pub url: String,
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Sentinel {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registry: Option<ContainerRegistry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub otel_endpoint: Option<String>,
 }
 
@@ -172,4 +183,38 @@ pub struct Config {
     pub openapi: Option<OpenApi>,
     #[serde(default)]
     pub functions: HashMap<String, Function>,
+}
+
+impl Config {
+    pub fn load(path: PathBuf) -> Result<Config> {
+        if !path.exists() {
+            return Err(CoupeError::InvalidInput(format!(
+                "Config file not found: {}",
+                path.display()
+            )));
+        }
+
+        let config_content = fs::read_to_string(&path).map_err(|e| CoupeError::Io(e))?;
+        let config: Config =
+            serde_yaml::from_str(&config_content).map_err(|e| CoupeError::Yaml(e))?;
+
+        Ok(config)
+    }
+
+    pub fn to_yaml(&self) -> Result<String> {
+        let yaml = serde_yaml::to_string(self).map_err(|e| CoupeError::Yaml(e))?;
+        Ok(yaml)
+    }
+
+    pub fn stack_network_name(&self) -> String {
+        format!("coupe-{}-network", self.name)
+    }
+
+    pub fn sentinel_container_name(&self) -> String {
+        format!("coupe-{}-sentinel", self.name)
+    }
+
+    pub fn function_container_name(&self, function_name: &str) -> String {
+        format!("coupe-{}-function-{}", self.name, function_name)
+    }
 }
