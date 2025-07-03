@@ -1,38 +1,28 @@
 ---
-// Dynamic blog post page - SSG for better performance
 export const prerender = true;
 
-import Layout from '../../layouts/Layout.astro';
-import { getCollection } from 'astro:content';
+import Layout from "../../layouts/Layout.astro";
+import { getCollection } from "astro:content";
 
-// Generate all possible paths for static generation
 export async function getStaticPaths() {
-  const posts = await getCollection('posts');
-  return posts.map(post => ({
-    params: { slug: post.slug }
+  const posts = await getCollection("posts");
+  return posts.map((post) => ({
+    params: { slug: post.slug },
   }));
 }
 
-// Get the slug from the URL
 const { slug } = Astro.params;
+const posts = await getCollection("posts");
+const post = posts.find((p) => p.slug === slug);
 
-// Get the post data
-const posts = await getCollection('posts');
-const post = posts.find(p => p.slug === slug);
-
-// If post doesn't exist, return 404
 if (!post) {
-  return Astro.redirect('/404');
+  return Astro.redirect("/404");
 }
 
-// Render the post content
 const { Content } = await post.render();
 ---
 
-<Layout
-  title={`${post.data.title} - Blog`}
-  description={post.data.excerpt}
->
+<Layout title={`${post.data.title} - Blog`} description={post.data.excerpt}>
   <article>
     <header class="post-header">
       <div class="meta">
@@ -45,9 +35,7 @@ const { Content } = await post.render();
       <h1>{post.data.title}</h1>
 
       <div class="tags">
-        {post.data.tags.map((tag) => (
-          <span class="tag">{tag}</span>
-        ))}
+        {post.data.tags.map((tag) => <span class="tag">{tag}</span>)}
       </div>
     </header>
 
@@ -148,7 +136,7 @@ const { Content } = await post.render();
   }
 
   .content :global(code) {
-    font-family: 'Courier New', monospace;
+    font-family: "Courier New", monospace;
     font-size: 0.9rem;
     background: #f8f9fa;
     padding: 0.2rem 0.4rem;

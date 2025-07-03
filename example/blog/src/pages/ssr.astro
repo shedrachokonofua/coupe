@@ -1,17 +1,15 @@
 ---
-// This page uses SSR (Server-Side Rendering)
 export const prerender = false;
 
-import Layout from '../layouts/Layout.astro';
-import { getCollection } from 'astro:content';
+import Layout from "../layouts/Layout.astro";
+import { getCollection } from "astro:content";
 
 const now = new Date().toISOString();
 const requestId = Math.random().toString(36).substr(2, 6);
+const posts = await getCollection("posts");
+const stats = Astro.locals.stats || { uniqueVisitors: 0, uptime: "0h 0m" };
 
-const posts = await getCollection('posts');
-const stats = Astro.locals.stats || { uniqueVisitors: 0, uptime: '0h 0m' };
-
-const userAgent = Astro.request.headers.get('user-agent') || 'Unknown';
+const userAgent = Astro.request.headers.get("user-agent") || "Unknown";
 const isMobile = /Mobile|Android|iP(hone|od|ad)/.test(userAgent);
 ---
 
@@ -41,7 +39,7 @@ const isMobile = /Mobile|Android|iP(hone|od|ad)/.test(userAgent);
     <h2>Request Info</h2>
     <p><strong>Time:</strong> {now}</p>
     <p><strong>Request ID:</strong> {requestId}</p>
-    <p><strong>Device:</strong> {isMobile ? 'Mobile' : 'Desktop'}</p>
+    <p><strong>Device:</strong> {isMobile ? "Mobile" : "Desktop"}</p>
   </section>
 
   <button onclick="location.reload()" class="refresh-btn">
@@ -60,7 +58,8 @@ const isMobile = /Mobile|Android|iP(hone|od|ad)/.test(userAgent);
     margin: 2rem 0 1rem 0;
   }
 
-  .stats, .info {
+  .stats,
+  .info {
     background: #f8f9fa;
     padding: 1.5rem;
     border-radius: 8px;

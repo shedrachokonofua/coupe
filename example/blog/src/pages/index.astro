@@ -1,7 +1,5 @@
 ---
-// This page uses SSG (Static Site Generation)
-// It will be pre-rendered at build time
-export const prerender = true; // Force SSG for this page
+export const prerender = true;
 
 import Layout from '../layouts/Layout.astro';
 import BlogSearch from '../components/BlogSearch.svelte';
@@ -9,10 +7,8 @@ import { getCollection } from 'astro:content';
 
 const buildTime = new Date().toISOString();
 
-// Get all posts from the content collection
 const allPosts = await getCollection('posts');
 
-// Sort posts by date (newest first) and format for the component
 const posts = allPosts
   .sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime())
   .map(post => ({
@@ -85,11 +81,3 @@ const posts = allPosts
   }
 </style>
 
-<script>
-  // Client-side JavaScript for enhanced interactivity
-  document.addEventListener('DOMContentLoaded', function() {
-    console.log('🎉 Blog homepage loaded with SSG and Svelte!');
-    console.log('📊 Build time:', document.querySelector('small')?.textContent);
-    console.log('🔍 Try the search above to see Svelte components in action');
-  });
-</script>
