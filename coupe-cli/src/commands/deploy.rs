@@ -1,5 +1,4 @@
-use crate::{AppError, Result};
-use coupe::{Config, DeploymentTarget, StackDockerClient};
+use coupe::{Config, CoupeError, DeploymentTarget, Result, deploy_stack};
 use std::path::PathBuf;
 
 pub async fn execute(path: Option<String>, remote: Option<String>) -> Result<()> {
@@ -11,29 +10,11 @@ pub async fn execute(path: Option<String>, remote: Option<String>) -> Result<()>
     };
     let config_path = path.unwrap_or("coupe.yaml".to_string());
     let config =
-        Config::load(PathBuf::from(config_path)).map_err(|e| AppError::Config(e.to_string()))?;
-    let stack_docker_client = StackDockerClient::new(&config, &deployment_target)
-        .map_err(|e| AppError::Docker(e.to_string()))?;
+        Config::load(PathBuf::from(config_path)).map_err(|e| CoupeError::Config(e.to_string()))?;
 
-    stack_docker_client
-        .teardown()
+    deploy_stack(&config, &deployment_target)
         .await
-        .map_err(|e| AppError::Docker(e.to_string()))?;
-
-    stack_docker_client
-        .create_network()
-        .await
-        .map_err(|e| AppError::Docker(e.to_string()))?;
-
-    stack_docker_client
-        .create_containers()
-        .await
-        .map_err(|e| AppError::Docker(e.to_string()))?;
-
-    stack_docker_client
-        .ensure_sentinel_running()
-        .await
-        .map_err(|e| AppError::Docker(e.to_string()))?;
+        .map_err(|e| CoupeError::Config(e.to_string()))?;
 
     Ok(())
 }

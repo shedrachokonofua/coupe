@@ -2,7 +2,8 @@ pub mod deploy;
 pub mod new;
 pub mod teardown;
 
-use crate::{Commands, Result};
+use crate::Commands;
+use coupe::Result;
 
 pub async fn execute(command: Commands) -> Result<()> {
     match command {

@@ -1,6 +1,4 @@
-use crate::Result;
-use crate::error::AppError;
-use coupe::Config;
+use coupe::{Config, CoupeError, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -20,7 +18,7 @@ pub async fn execute(name: String, path: Option<String>) -> Result<()> {
 
     let project_path = base_path.join(&name);
     if project_path.exists() {
-        return Err(AppError::InvalidInput(format!(
+        return Err(CoupeError::InvalidInput(format!(
             "Directory '{}' already exists",
             project_path.display()
         )));
@@ -38,7 +36,7 @@ pub async fn execute(name: String, path: Option<String>) -> Result<()> {
     let config_path = project_path.join("coupe.yaml");
     let yaml_content = config
         .to_yaml()
-        .map_err(|e| AppError::Config(e.to_string()))?;
+        .map_err(|e| CoupeError::Config(e.to_string()))?;
     fs::write(&config_path, yaml_content)?;
 
     println!("✓ Created project directory: {}", project_path.display());

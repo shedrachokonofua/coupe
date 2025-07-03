@@ -1,4 +1,4 @@
-use crate::{Config, ConfigTarget, CoupeError, DeploymentTarget, Result};
+use crate::{Config, CoupeError, DeploymentTarget, Result, deployment_path};
 use bollard::API_DEFAULT_VERSION;
 use bollard::errors::Error as BollardError;
 use bollard::models::{ContainerCreateBody, ContainerStateStatusEnum, NetworkCreateRequest};
@@ -12,158 +12,197 @@ use tokio::time::{Instant, sleep};
 
 pub use bollard::Docker;
 
-pub struct StackDockerClient<'a> {
-    client: Docker,
-    config: &'a Config,
-    config_target: ConfigTarget<'a>,
-}
-
 const DEFAULT_SENTINEL_IMAGE: &str = "coupe/sentinel:latest";
 
-impl<'a> StackDockerClient<'a> {
-    pub fn new(config: &'a Config, target: &'a DeploymentTarget) -> Result<Self> {
-        let client = match &target {
-            DeploymentTarget::Local => Docker::connect_with_unix_defaults(),
-            DeploymentTarget::Remote(host) => {
-                Docker::connect_with_ssh(host, 30, API_DEFAULT_VERSION)
-            }
-        }
+pub fn connect_docker(target: &DeploymentTarget) -> Result<Docker> {
+    match target {
+        DeploymentTarget::Local => Docker::connect_with_unix_defaults(),
+        DeploymentTarget::Remote(host) => Docker::connect_with_ssh(host, 30, API_DEFAULT_VERSION),
+    }
+    .map_err(|e| CoupeError::Docker(e.to_string()))
+}
+
+pub async fn create_sentinel_container(client: &Docker, config: &Config) -> Result<()> {
+    let container_name = config.sentinel_container_name();
+    let network_name = config.stack_network_name();
+
+    let sentinel_image = config
+        .sentinel
+        .as_ref()
+        .and_then(|s| s.registry.as_ref())
+        .map(|r| {
+            format!(
+                "{}/{}/coupe-sentinel:latest",
+                r.url,
+                r.namespace.as_deref().unwrap_or("library")
+            )
+        })
+        .unwrap_or_else(|| DEFAULT_SENTINEL_IMAGE.to_string());
+
+    let bind_mount = format!("{}:/usr/app:ro", deployment_path(config).display());
+
+    let container_config = ContainerCreateBody {
+        image: Some(sentinel_image),
+        env: Some(vec![format!("COUPE_STACK={}", config.name)]),
+        labels: Some({
+            let mut labels = HashMap::new();
+            labels.insert("coupe.stack".to_string(), config.name.clone());
+            labels.insert("coupe.role".to_string(), "sentinel".to_string());
+            labels
+        }),
+        host_config: Some(bollard::models::HostConfig {
+            network_mode: Some(network_name),
+            binds: Some(vec![bind_mount]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let options = CreateContainerOptionsBuilder::new()
+        .name(&container_name)
+        .build();
+
+    client
+        .create_container(Some(options), container_config)
+        .await
         .map_err(|e| CoupeError::Docker(e.to_string()))?;
 
-        let config_target = ConfigTarget::new(config, target);
+    Ok(())
+}
 
-        Ok(Self {
-            client,
-            config,
-            config_target,
-        })
-    }
+pub async fn create_function_container(
+    client: &Docker,
+    config: &Config,
+    function_name: &str,
+) -> Result<()> {
+    let function_config = config
+        .functions
+        .get(function_name)
+        .ok_or_else(|| CoupeError::Config(format!("Function {} not found", function_name)))?;
 
-    pub async fn create_sentinel_container(&self) -> Result<()> {
-        let container_name = self.config.sentinel_container_name();
-        let network_name = self.config.stack_network_name();
+    let container_name = config.function_container_name(function_name);
+    let network_name = config.stack_network_name();
 
-        self.config_target.deploy().await?;
-
-        let sentinel_image = self
-            .config
-            .sentinel
-            .as_ref()
-            .and_then(|s| s.registry.as_ref())
-            .map(|r| {
-                format!(
-                    "{}/{}/coupe-sentinel:latest",
-                    r.url,
-                    r.namespace.as_deref().unwrap_or("library")
-                )
-            })
-            .unwrap_or_else(|| DEFAULT_SENTINEL_IMAGE.to_string());
-
-        let bind_mount = format!("{}:/usr/app:ro", self.config_target.dir_path().display());
-
-        let container_config = ContainerCreateBody {
-            image: Some(sentinel_image),
-            env: Some(vec![format!("COUPE_STACK={}", self.config.name)]),
-            labels: Some({
-                let mut labels = HashMap::new();
-                labels.insert("coupe.stack".to_string(), self.config.name.clone());
-                labels.insert("coupe.role".to_string(), "sentinel".to_string());
-                labels
-            }),
-            host_config: Some(bollard::models::HostConfig {
-                network_mode: Some(network_name),
-                binds: Some(vec![bind_mount]),
-                ..Default::default()
-            }),
+    let container_config = ContainerCreateBody {
+        image: Some(function_config.image.clone()),
+        env: Some(vec![
+            format!("COUPE_STACK={}", config.name),
+            format!("COUPE_FUNCTION={}", function_name),
+        ]),
+        labels: Some({
+            let mut labels = HashMap::new();
+            labels.insert("coupe.stack".to_string(), config.name.clone());
+            labels.insert("coupe.role".to_string(), "function".to_string());
+            labels.insert("coupe.function".to_string(), function_name.to_string());
+            labels
+        }),
+        host_config: Some(bollard::models::HostConfig {
+            network_mode: Some(network_name),
             ..Default::default()
-        };
+        }),
+        ..Default::default()
+    };
 
-        let options = CreateContainerOptionsBuilder::new()
-            .name(&container_name)
-            .build();
+    let options = CreateContainerOptionsBuilder::new()
+        .name(&container_name)
+        .build();
 
-        self.client
-            .create_container(Some(options), container_config)
-            .await
-            .map_err(|e| CoupeError::Docker(e.to_string()))?;
+    client
+        .create_container(Some(options), container_config)
+        .await
+        .map_err(|e| CoupeError::Docker(e.to_string()))?;
 
-        Ok(())
+    Ok(())
+}
+
+pub async fn create_containers(client: &Docker, config: &Config) -> Result<()> {
+    create_sentinel_container(client, config).await?;
+    for name in config.functions.keys() {
+        create_function_container(client, config, name).await?;
     }
+    Ok(())
+}
 
-    pub async fn create_function_container(&self, function_name: String) -> Result<()> {
-        let function_config =
-            self.config.functions.get(&function_name).ok_or_else(|| {
-                CoupeError::Config(format!("Function {} not found", function_name))
-            })?;
+pub async fn create_network(client: &Docker, config: &Config) -> Result<()> {
+    let network_name = config.stack_network_name();
 
-        let container_name = self.config.function_container_name(&function_name);
-        let network_name = self.config.stack_network_name();
+    let options = NetworkCreateRequest {
+        name: network_name.clone(),
+        driver: Some("bridge".to_string()),
+        labels: Some({
+            let mut labels = HashMap::new();
+            labels.insert("coupe.stack".to_string(), config.name.clone());
+            labels
+        }),
+        ..Default::default()
+    };
 
-        let container_config = ContainerCreateBody {
-            image: Some(function_config.image.clone()),
-            env: Some(vec![
-                format!("COUPE_STACK={}", self.config.name),
-                format!("COUPE_FUNCTION={}", function_name),
-            ]),
-            labels: Some({
-                let mut labels = HashMap::new();
-                labels.insert("coupe.stack".to_string(), self.config.name.clone());
-                labels.insert("coupe.role".to_string(), "function".to_string());
-                labels.insert("coupe.function".to_string(), function_name.clone());
-                labels
-            }),
-            host_config: Some(bollard::models::HostConfig {
-                network_mode: Some(network_name),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+    client
+        .create_network(options)
+        .await
+        .map_err(|e| CoupeError::Docker(e.to_string()))?;
 
-        let options = CreateContainerOptionsBuilder::new()
-            .name(&container_name)
-            .build();
+    Ok(())
+}
 
-        self.client
-            .create_container(Some(options), container_config)
-            .await
-            .map_err(|e| CoupeError::Docker(e.to_string()))?;
+pub async fn ensure_container_running(client: &Docker, container_id: &str) -> Result<()> {
+    let inspect_result = client
+        .inspect_container(container_id, None::<InspectContainerOptions>)
+        .await
+        .map_err(|e| CoupeError::Docker(e.to_string()))?;
 
-        Ok(())
-    }
+    let status = inspect_result
+        .state
+        .and_then(|state| state.status)
+        .unwrap_or(ContainerStateStatusEnum::EMPTY);
 
-    pub async fn create_containers(&self) -> Result<()> {
-        self.create_sentinel_container().await?;
-        for (name, _) in &self.config.functions {
-            self.create_function_container(name.clone()).await?;
+    match status {
+        ContainerStateStatusEnum::RUNNING => Ok(()),
+        ContainerStateStatusEnum::CREATED | ContainerStateStatusEnum::EXITED => {
+            client
+                .start_container(container_id, None::<StartContainerOptions>)
+                .await
+                .map_err(|e| CoupeError::Docker(e.to_string()))?;
+
+            poll_until_running(client, container_id).await
         }
-        Ok(())
+        ContainerStateStatusEnum::PAUSED => {
+            client
+                .unpause_container(container_id)
+                .await
+                .map_err(|e| CoupeError::Docker(e.to_string()))?;
+
+            poll_until_running(client, container_id).await
+        }
+        ContainerStateStatusEnum::RESTARTING => poll_until_running(client, container_id).await,
+        _ => Err(CoupeError::Docker(format!(
+            "Container {} is in unrecoverable state: {:?}",
+            container_id, status
+        ))),
     }
+}
 
-    pub async fn create_network(&self) -> Result<()> {
-        let network_name = self.config.stack_network_name();
+pub async fn ensure_sentinel_running(client: &Docker, config: &Config) -> Result<()> {
+    let container_name = config.sentinel_container_name();
+    ensure_container_running(client, &container_name).await
+}
 
-        let options = NetworkCreateRequest {
-            name: network_name.clone(),
-            driver: Some("bridge".to_string()),
-            labels: Some({
-                let mut labels = HashMap::new();
-                labels.insert("coupe.stack".to_string(), self.config.name.clone());
-                labels
-            }),
-            ..Default::default()
-        };
+pub async fn recreate_docker_stack(config: &Config, target: &DeploymentTarget) -> Result<()> {
+    let client = connect_docker(target)?;
+    teardown(&client, config).await?;
+    create_network(&client, config).await?;
+    create_containers(&client, config).await?;
+    ensure_sentinel_running(&client, config).await?;
+    Ok(())
+}
 
-        self.client
-            .create_network(options)
-            .await
-            .map_err(|e| CoupeError::Docker(e.to_string()))?;
+async fn poll_until_running(client: &Docker, container_id: &str) -> Result<()> {
+    let timeout = Duration::from_secs(30);
+    let interval = Duration::from_millis(500);
+    let start_time = Instant::now();
 
-        Ok(())
-    }
-
-    pub async fn ensure_container_running(&self, container_id: &str) -> Result<()> {
-        let inspect_result = self
-            .client
+    while start_time.elapsed() < timeout {
+        let inspect_result = client
             .inspect_container(container_id, None::<InspectContainerOptions>)
             .await
             .map_err(|e| CoupeError::Docker(e.to_string()))?;
@@ -173,118 +212,62 @@ impl<'a> StackDockerClient<'a> {
             .and_then(|state| state.status)
             .unwrap_or(ContainerStateStatusEnum::EMPTY);
 
-        match status {
-            ContainerStateStatusEnum::RUNNING => Ok(()),
-            ContainerStateStatusEnum::CREATED | ContainerStateStatusEnum::EXITED => {
-                self.client
-                    .start_container(container_id, None::<StartContainerOptions>)
-                    .await
-                    .map_err(|e| CoupeError::Docker(e.to_string()))?;
-
-                self.poll_until_running(container_id).await
-            }
-            ContainerStateStatusEnum::PAUSED => {
-                self.client
-                    .unpause_container(container_id)
-                    .await
-                    .map_err(|e| CoupeError::Docker(e.to_string()))?;
-
-                self.poll_until_running(container_id).await
-            }
-            ContainerStateStatusEnum::RESTARTING => self.poll_until_running(container_id).await,
-            _ => Err(CoupeError::Docker(format!(
-                "Container {} is in unrecoverable state: {:?}",
-                container_id, status
-            ))),
-        }
-    }
-
-    pub async fn ensure_sentinel_running(&self) -> Result<()> {
-        let container_name = self.config.sentinel_container_name();
-        self.ensure_container_running(&container_name).await
-    }
-
-    async fn poll_until_running(&self, container_id: &str) -> Result<()> {
-        let timeout = Duration::from_secs(30);
-        let interval = Duration::from_millis(500);
-        let start_time = Instant::now();
-
-        while start_time.elapsed() < timeout {
-            let inspect_result = self
-                .client
-                .inspect_container(container_id, None::<InspectContainerOptions>)
-                .await
-                .map_err(|e| CoupeError::Docker(e.to_string()))?;
-
-            let status = inspect_result
-                .state
-                .and_then(|state| state.status)
-                .unwrap_or(ContainerStateStatusEnum::EMPTY);
-
-            if status == ContainerStateStatusEnum::RUNNING {
-                return Ok(());
-            }
-
-            sleep(interval).await;
+        if status == ContainerStateStatusEnum::RUNNING {
+            return Ok(());
         }
 
-        Err(CoupeError::Docker(format!(
-            "Container {} failed to start within timeout",
-            container_id
-        )))
+        sleep(interval).await;
     }
 
-    pub async fn teardown(&self) -> Result<()> {
-        println!("Tearing down stack");
-        for (name, _) in &self.config.functions {
-            let container_name = self.config.function_container_name(name);
-            println!("Removing container {}", container_name);
-            self.remove_container_if_exists(&container_name).await?;
-        }
+    Err(CoupeError::Docker(format!(
+        "Container {} failed to start within timeout",
+        container_id
+    )))
+}
 
-        let sentinel_container_name = self.config.sentinel_container_name();
-        self.remove_container_if_exists(&sentinel_container_name)
-            .await?;
-
-        let network_name = self.config.stack_network_name();
-        self.remove_network_if_exists(&network_name).await?;
-
-        self.config_target.remove().await?;
-
-        Ok(())
+pub async fn teardown(client: &Docker, config: &Config) -> Result<()> {
+    println!("Tearing down stack");
+    for name in config.functions.keys() {
+        let container_name = config.function_container_name(name);
+        println!("Removing container {}", container_name);
+        remove_container_if_exists(client, &container_name).await?;
     }
 
-    async fn remove_container_if_exists(&self, container_name: &str) -> Result<()> {
-        let options = RemoveContainerOptionsBuilder::new().force(true).build();
+    let sentinel_container_name = config.sentinel_container_name();
+    remove_container_if_exists(client, &sentinel_container_name).await?;
 
-        match self
-            .client
-            .remove_container(container_name, Some(options))
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if let BollardError::DockerResponseServerError { status_code, .. } = &e {
-                    if *status_code == 404 {
-                        return Ok(());
-                    }
+    let network_name = config.stack_network_name();
+    remove_network_if_exists(client, &network_name).await?;
+
+    Ok(())
+}
+
+async fn remove_container_if_exists(client: &Docker, container_name: &str) -> Result<()> {
+    let options = RemoveContainerOptionsBuilder::new().force(true).build();
+
+    match client.remove_container(container_name, Some(options)).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if let BollardError::DockerResponseServerError { status_code, .. } = &e {
+                if *status_code == 404 {
+                    return Ok(());
                 }
-                Err(CoupeError::Docker(e.to_string()))
             }
+            Err(CoupeError::Docker(e.to_string()))
         }
     }
+}
 
-    async fn remove_network_if_exists(&self, network_name: &str) -> Result<()> {
-        match self.client.remove_network(network_name).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if let BollardError::DockerResponseServerError { status_code, .. } = &e {
-                    if *status_code == 404 {
-                        return Ok(());
-                    }
+async fn remove_network_if_exists(client: &Docker, network_name: &str) -> Result<()> {
+    match client.remove_network(network_name).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if let BollardError::DockerResponseServerError { status_code, .. } = &e {
+                if *status_code == 404 {
+                    return Ok(());
                 }
-                Err(CoupeError::Docker(e.to_string()))
             }
+            Err(CoupeError::Docker(e.to_string()))
         }
     }
 }
