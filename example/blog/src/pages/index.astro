@@ -1,0 +1,95 @@
+---
+// This page uses SSG (Static Site Generation)
+// It will be pre-rendered at build time
+export const prerender = true; // Force SSG for this page
+
+import Layout from '../layouts/Layout.astro';
+import BlogSearch from '../components/BlogSearch.svelte';
+import { getCollection } from 'astro:content';
+
+const buildTime = new Date().toISOString();
+
+// Get all posts from the content collection
+const allPosts = await getCollection('posts');
+
+// Sort posts by date (newest first) and format for the component
+const posts = allPosts
+  .sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime())
+  .map(post => ({
+    title: post.data.title,
+    excerpt: post.data.excerpt,
+    date: post.data.date,
+    slug: post.slug,
+    tags: post.data.tags,
+    readTime: post.data.readTime
+  }));
+---
+
+<Layout title="Simple Blog" description="A clean blog built with Astro and Svelte">
+  <h1>Simple Blog <span class="rendering-type">SSG</span></h1>
+  <p>A minimal blog demonstrating Astro and Svelte integration.</p>
+
+  <BlogSearch
+    posts={posts}
+    client:load
+  />
+
+  <section class="info">
+    <h2>About</h2>
+    <p>This blog demonstrates:</p>
+    <ul>
+      <li>SSG for fast loading</li>
+      <li>Svelte for interactivity</li>
+      <li>Markdown content</li>
+      <li>Content collections</li>
+    </ul>
+    <p><small>Built at: {buildTime}</small></p>
+  </section>
+</Layout>
+
+<style>
+  h1 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+  }
+
+  h2 {
+    color: #3498db;
+    font-size: 1.3rem;
+    margin: 2rem 0 1rem 0;
+  }
+
+  p {
+    margin-bottom: 1.5rem;
+    opacity: 0.8;
+  }
+
+  .info {
+    background: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    margin-top: 2rem;
+  }
+
+  ul {
+    margin: 1rem 0;
+  }
+
+  li {
+    margin-bottom: 0.5rem;
+  }
+
+  small {
+    opacity: 0.6;
+  }
+</style>
+
+<script>
+  // Client-side JavaScript for enhanced interactivity
+  document.addEventListener('DOMContentLoaded', function() {
+    console.log('🎉 Blog homepage loaded with SSG and Svelte!');
+    console.log('📊 Build time:', document.querySelector('small')?.textContent);
+    console.log('🔍 Try the search above to see Svelte components in action');
+  });
+</script>
