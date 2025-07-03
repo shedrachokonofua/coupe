@@ -6,6 +6,7 @@ use bollard::query_parameters::{
     CreateContainerOptionsBuilder, InspectContainerOptions, RemoveContainerOptionsBuilder,
     StartContainerOptions,
 };
+use bollard::secret::PortBinding;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::{Instant, sleep};
@@ -50,9 +51,20 @@ pub async fn create_sentinel_container(client: &Docker, config: &Config) -> Resu
             labels.insert("coupe.role".to_string(), "sentinel".to_string());
             labels
         }),
+        exposed_ports: Some(HashMap::from([(
+            format!("{}/tcp", config.sentinel_port()),
+            HashMap::<(), ()>::new(),
+        )])),
         host_config: Some(bollard::models::HostConfig {
             network_mode: Some(network_name),
             binds: Some(vec![bind_mount]),
+            port_bindings: Some(HashMap::from([(
+                format!("{}/tcp", config.sentinel_port()),
+                Some(vec![PortBinding {
+                    host_ip: Some("0.0.0.0".to_string()),
+                    host_port: Some(config.sentinel_port().to_string()),
+                }]),
+            )])),
             ..Default::default()
         }),
         ..Default::default()

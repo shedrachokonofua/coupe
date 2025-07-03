@@ -8,5 +8,8 @@ RUN cargo build --release
 
 FROM debian:bookworm-slim
 WORKDIR /usr/app
+RUN apt-get update && \
+    apt-get install -y ca-certificates libssl3 && \
+    rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/src/coupe-sentinel/target/release/coupe-sentinel /usr/local/bin/coupe-sentinel
 CMD ["coupe-sentinel"]

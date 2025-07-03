@@ -112,6 +112,8 @@ pub struct ContainerRegistry {
     pub namespace: Option<String>,
 }
 
+pub const DEFAULT_SENTINEL_PORT: u16 = 52345;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Sentinel {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -216,5 +218,12 @@ impl Config {
 
     pub fn function_container_name(&self, function_name: &str) -> String {
         format!("coupe-{}-function-{}", self.name, function_name)
+    }
+
+    pub fn sentinel_port(&self) -> u16 {
+        self.sentinel
+            .as_ref()
+            .and_then(|s| s.port)
+            .unwrap_or(DEFAULT_SENTINEL_PORT)
     }
 }
