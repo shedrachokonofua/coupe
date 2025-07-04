@@ -1,17 +1,16 @@
 use crate::{Config, CoupeError, DeploymentTarget, Result, deployment_path};
 use bollard::API_DEFAULT_VERSION;
+pub use bollard::Docker;
 use bollard::errors::Error as BollardError;
 use bollard::models::{ContainerCreateBody, ContainerStateStatusEnum, NetworkCreateRequest};
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, InspectContainerOptions, RemoveContainerOptionsBuilder,
-    StartContainerOptions,
+    StartContainerOptions, StopContainerOptions,
 };
 use bollard::secret::PortBinding;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::{Instant, sleep};
-
-pub use bollard::Docker;
 
 const DEFAULT_SENTINEL_IMAGE: &str = "coupe/sentinel:latest";
 
@@ -40,7 +39,7 @@ pub async fn create_sentinel_container(client: &Docker, config: &Config) -> Resu
         })
         .unwrap_or_else(|| DEFAULT_SENTINEL_IMAGE.to_string());
 
-    let bind_mount = format!("{}:/usr/app:ro", deployment_path(config).display());
+    let bind_mount = format!("{}:/usr/app:rw", deployment_path(config).display());
 
     let container_config = ContainerCreateBody {
         image: Some(sentinel_image),
@@ -157,7 +156,10 @@ pub async fn create_network(client: &Docker, config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub async fn ensure_container_running(client: &Docker, container_id: &str) -> Result<()> {
+pub async fn get_container_status(
+    client: &Docker,
+    container_id: &str,
+) -> Result<ContainerStateStatusEnum> {
     let inspect_result = client
         .inspect_container(container_id, None::<InspectContainerOptions>)
         .await
@@ -168,15 +170,29 @@ pub async fn ensure_container_running(client: &Docker, container_id: &str) -> Re
         .and_then(|state| state.status)
         .unwrap_or(ContainerStateStatusEnum::EMPTY);
 
-    match status {
-        ContainerStateStatusEnum::RUNNING => Ok(()),
+    Ok(status)
+}
+
+pub struct ContainerRunResult {
+    pub coldstarted: bool,
+}
+
+pub async fn ensure_container_running(
+    client: &Docker,
+    container_id: &str,
+) -> Result<ContainerRunResult> {
+    let status = get_container_status(client, container_id).await?;
+
+    let coldstarted = match status {
+        ContainerStateStatusEnum::RUNNING => true,
         ContainerStateStatusEnum::CREATED | ContainerStateStatusEnum::EXITED => {
             client
                 .start_container(container_id, None::<StartContainerOptions>)
                 .await
                 .map_err(|e| CoupeError::Docker(e.to_string()))?;
 
-            poll_until_running(client, container_id).await
+            poll_until_running(client, container_id).await?;
+            false
         }
         ContainerStateStatusEnum::PAUSED => {
             client
@@ -184,18 +200,38 @@ pub async fn ensure_container_running(client: &Docker, container_id: &str) -> Re
                 .await
                 .map_err(|e| CoupeError::Docker(e.to_string()))?;
 
-            poll_until_running(client, container_id).await
+            poll_until_running(client, container_id).await?;
+            false
         }
-        ContainerStateStatusEnum::RESTARTING => poll_until_running(client, container_id).await,
-        _ => Err(CoupeError::Docker(format!(
-            "Container {} is in unrecoverable state: {:?}",
-            container_id, status
-        ))),
-    }
+        ContainerStateStatusEnum::RESTARTING => {
+            poll_until_running(client, container_id).await?;
+            false
+        }
+        _ => {
+            return Err(CoupeError::Docker(format!(
+                "Container {} is in unrecoverable state: {:?}",
+                container_id, status
+            )));
+        }
+    };
+
+    Ok(ContainerRunResult { coldstarted })
 }
 
-pub async fn ensure_sentinel_running(client: &Docker, config: &Config) -> Result<()> {
+pub async fn ensure_sentinel_running(
+    client: &Docker,
+    config: &Config,
+) -> Result<ContainerRunResult> {
     let container_name = config.sentinel_container_name();
+    ensure_container_running(client, &container_name).await
+}
+
+pub async fn ensure_function_running(
+    client: &Docker,
+    config: &Config,
+    function_name: &str,
+) -> Result<ContainerRunResult> {
+    let container_name = config.function_container_name(function_name);
     ensure_container_running(client, &container_name).await
 }
 
@@ -214,15 +250,7 @@ async fn poll_until_running(client: &Docker, container_id: &str) -> Result<()> {
     let start_time = Instant::now();
 
     while start_time.elapsed() < timeout {
-        let inspect_result = client
-            .inspect_container(container_id, None::<InspectContainerOptions>)
-            .await
-            .map_err(|e| CoupeError::Docker(e.to_string()))?;
-
-        let status = inspect_result
-            .state
-            .and_then(|state| state.status)
-            .unwrap_or(ContainerStateStatusEnum::EMPTY);
+        let status = get_container_status(client, container_id).await?;
 
         if status == ContainerStateStatusEnum::RUNNING {
             return Ok(());
@@ -282,4 +310,28 @@ async fn remove_network_if_exists(client: &Docker, network_name: &str) -> Result
             Err(CoupeError::Docker(e.to_string()))
         }
     }
+}
+
+async fn stop_container(client: &Docker, container_name: &str) -> Result<()> {
+    client
+        .stop_container(container_name, None::<StopContainerOptions>)
+        .await
+        .map_err(|e| CoupeError::Docker(e.to_string()))?;
+    Ok(())
+}
+
+pub async fn stop_function_container(
+    client: &Docker,
+    config: &Config,
+    function_name: &str,
+) -> Result<()> {
+    if !config.functions.contains_key(function_name) {
+        return Err(CoupeError::InvalidInput(format!(
+            "Function {} not found",
+            function_name
+        )));
+    }
+
+    let container_name = config.function_container_name(function_name);
+    stop_container(client, &container_name).await
 }

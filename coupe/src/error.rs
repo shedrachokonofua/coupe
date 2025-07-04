@@ -27,4 +27,10 @@ pub enum CoupeError {
 
     #[error("File system error: {0}")]
     FileSystem(String),
+
+    #[error("Database error: {0}")]
+    Database(String),
+
+    #[error("Date/Time error: {0}")]
+    DateTime(String),
 }

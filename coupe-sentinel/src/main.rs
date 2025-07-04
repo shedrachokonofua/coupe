@@ -1,13 +1,16 @@
 use clap::Parser;
-use coupe::Config;
-use coupe_sentinel::{AppError, Result, serve_api};
+use coupe::{Config, Result};
+use coupe_sentinel::{serve_api, watch_sessions};
 use mimalloc::MiMalloc;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
+use tokio::spawn;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 async fn run(config: Config) -> Result<()> {
+    let config = Arc::new(config);
+    spawn(watch_sessions(Arc::clone(&config)));
     serve_api(config).await
 }
 
@@ -15,7 +18,6 @@ async fn run(config: Config) -> Result<()> {
 #[command(name = "coupe-sentinel")]
 #[command(about = "Coupe Sentinel API server", long_about = None)]
 struct Cli {
-    /// Path to the coupe stack configuration file
     #[arg(short, long, default_value = "coupe.yaml")]
     config: PathBuf,
 }
@@ -23,7 +25,7 @@ struct Cli {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let config = match Config::load(cli.config).map_err(|e| AppError::Config(e.to_string())) {
+    let config = match Config::load(cli.config) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("Error: {}", e);

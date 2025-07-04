@@ -57,10 +57,8 @@ where
     T: Deserialize<'de>,
     D: Deserializer<'de>,
 {
-    // First let Serde do its normal work
     let raw: Option<HashMap<String, T>> = Option::deserialize(deserializer)?;
 
-    // Wrap every T value in an Arc
     Ok(raw.map(|m| {
         m.into_iter()
             .map(|(k, v)| (k, Arc::new(v)))
@@ -77,9 +75,11 @@ pub enum Trigger {
         #[serde(
             default,
             serialize_with = "serialize_schema",
-            deserialize_with = "deserialize_schema"
+            deserialize_with = "deserialize_schema",
+            skip_serializing_if = "Option::is_none"
         )]
         schema: Option<HashMap<String, Arc<Operations>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         auth: Option<HttpAuth>,
     },
     #[serde(rename = "queue")]
@@ -90,7 +90,7 @@ pub enum Trigger {
     Timer { schedule: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Scaling {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_duration: Option<u64>,
