@@ -33,4 +33,7 @@ pub enum CoupeError {
 
     #[error("Date/Time error: {0}")]
     DateTime(String),
+
+    #[error("Unknown error: {0}")]
+    Unknown(String),
 }

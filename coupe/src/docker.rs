@@ -39,8 +39,6 @@ pub async fn create_sentinel_container(client: &Docker, config: &Config) -> Resu
         })
         .unwrap_or_else(|| DEFAULT_SENTINEL_IMAGE.to_string());
 
-    let bind_mount = format!("{}:/usr/app:rw", deployment_path(config).display());
-
     let container_config = ContainerCreateBody {
         image: Some(sentinel_image),
         env: Some(vec![format!("COUPE_STACK={}", config.name)]),
@@ -56,7 +54,10 @@ pub async fn create_sentinel_container(client: &Docker, config: &Config) -> Resu
         )])),
         host_config: Some(bollard::models::HostConfig {
             network_mode: Some(network_name),
-            binds: Some(vec![bind_mount]),
+            binds: Some(vec![
+                format!("{}:/usr/app:rw", deployment_path(config).display()),
+                "/var/run/docker.sock:/var/run/docker.sock".to_string(),
+            ]),
             port_bindings: Some(HashMap::from([(
                 format!("{}/tcp", config.sentinel_port()),
                 Some(vec![PortBinding {

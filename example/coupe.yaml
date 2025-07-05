@@ -6,4 +6,5 @@ functions:
     image: coupe/example-blog:latest
     trigger:
       type: http
-      path: /*
+      path: "*"
+    handler_port: 3000

@@ -158,6 +158,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-proxy"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d6a7a2cf3b2c290d58072f1609e119a48fe43c1fbc6612d30aa57a0ace3dc09"
+dependencies = [
+ "http",
+ "http-body",
+ "hyper",
+ "hyper-util",
+ "log",
+ "regex",
+ "tower-service",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -383,6 +398,7 @@ name = "coupe-sentinel"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-proxy",
  "bincode",
  "clap",
  "coupe",
@@ -394,6 +410,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
+ "tower-service",
  "tracing",
 ]
 

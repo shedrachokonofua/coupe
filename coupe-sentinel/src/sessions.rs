@@ -21,7 +21,7 @@ static SESSION_STORE: LazyLock<PartitionHandle> = LazyLock::new(|| {
         .expect("Failed to open sessions tree")
 });
 
-static DOCKER_CLIENT: LazyLock<Docker> = LazyLock::new(|| {
+pub static DOCKER_CLIENT: LazyLock<Docker> = LazyLock::new(|| {
     connect_docker(&coupe::DeploymentTarget::Local).expect("Failed to connect to Docker")
 });
 

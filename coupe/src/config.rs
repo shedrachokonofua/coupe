@@ -67,11 +67,23 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum HttpMethod {
+    Any,
+    Get,
+    Post,
+    Put,
+    Delete,
+    Patch,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Trigger {
     #[serde(rename = "http")]
     Http {
         path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        method: Option<HttpMethod>,
         #[serde(
             default,
             serialize_with = "serialize_schema",
@@ -90,6 +102,29 @@ pub enum Trigger {
     Timer { schedule: String },
 }
 
+impl Trigger {
+    pub fn as_http(
+        self,
+    ) -> Option<(
+        String,
+        Option<HttpMethod>,
+        Option<HashMap<String, Arc<Operations>>>,
+        Option<HttpAuth>,
+    )> {
+        if let Trigger::Http {
+            path,
+            method,
+            schema,
+            auth,
+        } = self
+        {
+            Some((path, method, schema, auth))
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Scaling {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,6 +139,8 @@ pub struct Function {
     pub trigger: Trigger,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scaling: Option<Scaling>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handler_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +150,7 @@ pub struct ContainerRegistry {
 }
 
 pub const DEFAULT_SENTINEL_PORT: u16 = 52345;
+pub const DEFAULT_FUNCTION_HANDLER_PORT: u16 = 80;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Sentinel {
@@ -225,5 +263,36 @@ impl Config {
             .as_ref()
             .and_then(|s| s.port)
             .unwrap_or(DEFAULT_SENTINEL_PORT)
+    }
+
+    pub fn http_functions(&self) -> Vec<String> {
+        self.functions
+            .iter()
+            .filter_map(|(name, func)| {
+                if let Trigger::Http { .. } = &func.trigger {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn internal_function_url(&self, function_name: &str) -> Result<String> {
+        let function = self
+            .functions
+            .get(function_name)
+            .ok_or(CoupeError::InvalidInput(format!(
+                "Function not found: {}",
+                function_name
+            )))?;
+        let function_url = format!(
+            "{}:{}",
+            self.function_container_name(function_name),
+            function
+                .handler_port
+                .unwrap_or(DEFAULT_FUNCTION_HANDLER_PORT)
+        );
+        Ok(function_url)
     }
 }
