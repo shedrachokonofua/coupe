@@ -4,11 +4,11 @@ use axum::{
     body::Body,
     extract::State,
     http::{Request, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{any, delete, get, patch, post, put},
     serve,
 };
-use axum_proxy::Identity;
+use axum_proxy::{Identity, ReusedService, client::HttpConnector};
 use coupe::{Config, CoupeError, HttpMethod, Result, ensure_function_running};
 use serde::Deserialize;
 use serde_json::json;
@@ -48,6 +48,46 @@ async fn get_config(State(config): State<Arc<Config>>) -> impl IntoResponse {
     }
     .into_response()
 }
+
+async fn invoke_function(
+    mut proxy: ReusedService<Identity, HttpConnector, Body>,
+    config: Arc<Config>,
+    function_name: String,
+    request: Request<Body>,
+) -> Response {
+    if let Err(e) = start_session(&config, function_name.clone()).await {
+        error!(error = e.to_string().as_str(), "Failed to start session");
+        let res = Json(json!({ "error": e.to_string() }));
+        return match e {
+            CoupeError::Healthcheck(e) => {
+                (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e })))
+            }
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, res),
+        }
+        .into_response();
+    }
+
+    match proxy.call(request).await {
+        Ok(Ok(res)) => res.into_response(),
+        Ok(Err(e)) => {
+            error!(error = e.to_string().as_str(), "Proxy error");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({ "error": "Proxy error", "message": e.to_string() })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            error!(error = e.to_string().as_str(), "Proxy error");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Proxy error, should be unreachable", "message": e.to_string() })),
+            )
+                .into_response()
+        }
+    }
+}
+
 fn build_function_router(config: Arc<Config>) -> Result<Router> {
     let mut router = Router::new();
     for function_name in config.http_functions() {
@@ -79,42 +119,11 @@ fn build_function_router(config: Arc<Config>) -> Result<Router> {
         let handler_function_name = function_name.clone();
 
         let handler = move |request: Request<Body>| {
-            let mut proxy = reverse_proxy.clone();
+            let proxy = reverse_proxy.clone();
             let config = handler_config.clone();
             let function_name = handler_function_name.clone();
 
-            async move {
-                if let Err(e) = start_session(&config, function_name.clone()).await {
-                    error!(error = e.to_string().as_str(), "Failed to start session");
-                    let res = Json(json!({ "error": e.to_string() }));
-                    return match e {
-                        CoupeError::Healthcheck(e) => {
-                            (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e })))
-                        }
-                        _ => (StatusCode::INTERNAL_SERVER_ERROR, res),
-                    }
-                    .into_response();
-                }
-                match proxy.call(request).await {
-                    Ok(Ok(res)) => res.into_response(),
-                    Ok(Err(e)) => {
-                        error!(error = e.to_string().as_str(), "Proxy error");
-                        (
-                            StatusCode::BAD_GATEWAY,
-                            Json(json!({ "error": "Proxy error", "message": e.to_string() })),
-                        )
-                            .into_response()
-                    }
-                    Err(e) => {
-                        error!(error = e.to_string().as_str(), "Proxy error");
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(json!({ "error": "Proxy error, should be unreachable", "message": e.to_string() })),
-                        )
-                            .into_response()
-                    }
-                }
-            }
+            async move { invoke_function(proxy, config, function_name, request).await }
         };
         let method_router = match method.unwrap_or(HttpMethod::Any) {
             HttpMethod::Any => any(handler),

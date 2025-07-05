@@ -13,7 +13,7 @@ use std::{
     sync::{Arc, LazyLock},
     time::Duration,
 };
-use tokio::time::{Instant, sleep};
+use tokio::time::{Instant, sleep, timeout};
 use tracing::{error, info, instrument};
 
 static SESSION_STORE: LazyLock<PartitionHandle> = LazyLock::new(|| {
@@ -161,6 +161,8 @@ pub async fn start_session(config: &Config, function_name: String) -> Result<Ses
     let run_result =
         ensure_function_running(&DOCKER_CLIENT, config, function_name.as_str()).await?;
     let session = save_session(Session::new(function_name.clone(), session_duration)).await?;
+    wait_for_healthcheck(&config.internal_function_healthcheck_url(function_name.as_str())?)
+        .await?;
     let elapsed = Instant::now() - start;
     info!(
         function_name = function_name.as_str(),
@@ -168,7 +170,30 @@ pub async fn start_session(config: &Config, function_name: String) -> Result<Ses
         coldstarted = run_result.coldstarted,
         "Session started"
     );
+
     Ok(session)
+}
+
+async fn wait_for_healthcheck(url: &str) -> Result<()> {
+    let client = reqwest::Client::new();
+    let total_timeout = Duration::from_secs(15);
+    let retry_delay = Duration::from_millis(200);
+    let request_timeout = Duration::from_secs(2);
+
+    timeout(total_timeout, async {
+        loop {
+            match client.get(url).timeout(request_timeout).send().await {
+                Ok(response) if response.status().is_success() => {
+                    return Ok(());
+                }
+                _ => {
+                    sleep(retry_delay).await;
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|e| CoupeError::Healthcheck(e.to_string()))?
 }
 
 #[instrument]

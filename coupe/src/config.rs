@@ -292,7 +292,7 @@ impl Config {
             .functions
             .get(function_name)
             .ok_or(CoupeError::InvalidInput(format!(
-                "Function {} has no handler port",
+                "Function {} not found",
                 function_name
             )))?;
         Ok(function
