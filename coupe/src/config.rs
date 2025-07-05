@@ -279,20 +279,31 @@ impl Config {
     }
 
     pub fn internal_function_url(&self, function_name: &str) -> Result<String> {
+        let function_url = format!(
+            "{}:{}",
+            self.function_container_name(function_name),
+            self.function_handler_port(function_name)?
+        );
+        Ok(function_url)
+    }
+
+    pub fn function_handler_port(&self, function_name: &str) -> Result<u16> {
         let function = self
             .functions
             .get(function_name)
             .ok_or(CoupeError::InvalidInput(format!(
-                "Function not found: {}",
+                "Function {} has no handler port",
                 function_name
             )))?;
-        let function_url = format!(
-            "{}:{}",
-            self.function_container_name(function_name),
-            function
-                .handler_port
-                .unwrap_or(DEFAULT_FUNCTION_HANDLER_PORT)
-        );
-        Ok(function_url)
+        Ok(function
+            .handler_port
+            .unwrap_or(DEFAULT_FUNCTION_HANDLER_PORT))
+    }
+
+    pub fn internal_function_healthcheck_url(&self, function_name: &str) -> Result<String> {
+        Ok(format!(
+            "http://{}/health",
+            self.internal_function_url(function_name)?
+        ))
     }
 }

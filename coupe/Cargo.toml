@@ -13,3 +13,4 @@ bollard = { version = "0.19.1", features = ["ssh"] }
 tokio = { version = "1.45.1", features = ["full"] }
 remotefs = "0.3.1"
 remotefs-ssh = "0.6.2"
+reqwest = "0.12.22"

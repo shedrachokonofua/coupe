@@ -36,4 +36,7 @@ pub enum CoupeError {
 
     #[error("Unknown error: {0}")]
     Unknown(String),
+
+    #[error("Healthcheck error: {0}")]
+    Healthcheck(String),
 }

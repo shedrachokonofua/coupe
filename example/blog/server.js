@@ -4,6 +4,10 @@ import { handler as astroHandler } from "./dist/server/entry.mjs";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.get("/health", (req, res) => {
+  res.send("OK");
+});
+
 const serverStartTime = new Date();
 let uniqueIPs = new Set();
 

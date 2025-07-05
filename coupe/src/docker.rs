@@ -10,7 +10,7 @@ use bollard::query_parameters::{
 use bollard::secret::PortBinding;
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::time::{Instant, sleep};
+use tokio::time::{Instant, sleep, timeout};
 
 const DEFAULT_SENTINEL_IMAGE: &str = "coupe/sentinel:latest";
 
@@ -178,7 +178,7 @@ pub struct ContainerRunResult {
     pub coldstarted: bool,
 }
 
-pub async fn ensure_container_running(
+async fn ensure_container_running(
     client: &Docker,
     container_id: &str,
 ) -> Result<ContainerRunResult> {
@@ -233,9 +233,32 @@ pub async fn ensure_function_running(
     function_name: &str,
 ) -> Result<ContainerRunResult> {
     let container_name = config.function_container_name(function_name);
-    ensure_container_running(client, &container_name).await
+    let result = ensure_container_running(client, &container_name).await?;
+    wait_for_healthcheck(&(config.internal_function_healthcheck_url(function_name)?)).await?;
+    Ok(result)
 }
 
+async fn wait_for_healthcheck(url: &str) -> Result<()> {
+    let client = reqwest::Client::new();
+    let total_timeout = Duration::from_secs(15);
+    let retry_delay = Duration::from_millis(200); // Check every 200ms
+    let request_timeout = Duration::from_secs(2); // Individual request timeout
+
+    timeout(total_timeout, async {
+        loop {
+            match client.get(url).timeout(request_timeout).send().await {
+                Ok(response) if response.status().is_success() => {
+                    return Ok(());
+                }
+                _ => {
+                    sleep(retry_delay).await;
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|e| CoupeError::Healthcheck(e.to_string()))?
+}
 pub async fn recreate_docker_stack(config: &Config, target: &DeploymentTarget) -> Result<()> {
     let client = connect_docker(target)?;
     teardown(&client, config).await?;

@@ -75,7 +75,6 @@ fn build_function_router(config: Arc<Config>) -> Result<Router> {
         .map_err(|e| CoupeError::InvalidInput(format!("Failed to build reverse proxy: {}", e)))?
         .build(Identity);
 
-        // Clone the Arc for use in the handler
         let handler_config = Arc::clone(&config);
         let handler_function_name = function_name.clone();
 
@@ -87,11 +86,14 @@ fn build_function_router(config: Arc<Config>) -> Result<Router> {
             async move {
                 if let Err(e) = start_session(&config, function_name.clone()).await {
                     error!(error = e.to_string().as_str(), "Failed to start session");
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "error": e.to_string() })),
-                    )
-                        .into_response();
+                    let res = Json(json!({ "error": e.to_string() }));
+                    return match e {
+                        CoupeError::Healthcheck(e) => {
+                            (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e })))
+                        }
+                        _ => (StatusCode::INTERNAL_SERVER_ERROR, res),
+                    }
+                    .into_response();
                 }
                 match proxy.call(request).await {
                     Ok(Ok(res)) => res.into_response(),
