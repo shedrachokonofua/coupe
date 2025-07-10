@@ -1,4 +1,4 @@
-use crate::{Config, CoupeError, Result, recreate_docker_stack};
+use crate::{Config, CoupeError, Result, build_fluentbit_config, recreate_docker_stack};
 use remotefs::{
     RemoteErrorType, RemoteFs,
     fs::{Metadata, UnixPex},
@@ -32,6 +32,10 @@ fn config_path(config: &Config) -> PathBuf {
     deployment_path(config).join("coupe.yaml")
 }
 
+pub fn fluentbit_path(config: &Config) -> PathBuf {
+    deployment_path(config).join("fluentbit.yaml")
+}
+
 pub async fn deploy_config(config: &Config, target: &DeploymentTarget) -> Result<()> {
     if let DeploymentTarget::Remote(host) = target {
         let mut client = connect_ssh(host)?;
@@ -54,6 +58,18 @@ pub async fn deploy_config(config: &Config, target: &DeploymentTarget) -> Result
                 Box::new(reader),
             )
             .map_err(|e| CoupeError::SshCommand(e.to_string()))?;
+
+        let fluentbit_content = serde_yaml::to_string(&build_fluentbit_config(config)?)
+            .map_err(|e| CoupeError::Yaml(e))?;
+        let reader = std::io::Cursor::new(fluentbit_content);
+        client
+            .create_file(
+                fluentbit_path(config).as_path(),
+                &Metadata::default(),
+                Box::new(reader),
+            )
+            .map_err(|e| CoupeError::SshCommand(e.to_string()))?;
+
         client
             .disconnect()
             .map_err(|e| CoupeError::SshCommand(e.to_string()))?;
@@ -61,6 +77,11 @@ pub async fn deploy_config(config: &Config, target: &DeploymentTarget) -> Result
         println!("Deploying to local filesystem");
         fs::create_dir_all(deployment_path(config)).await?;
         fs::write(config_path(config), serde_yaml::to_string(config)?).await?;
+        fs::write(
+            fluentbit_path(config),
+            serde_yaml::to_string(&build_fluentbit_config(config)?)?,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -75,6 +96,9 @@ pub async fn remove_config(config: &Config, target: &DeploymentTarget) -> Result
         {
             client
                 .remove_dir(deployment_path(config).as_path())
+                .map_err(|e| CoupeError::SshCommand(e.to_string()))?;
+            client
+                .remove_file(fluentbit_path(config).as_path())
                 .map_err(|e| CoupeError::SshCommand(e.to_string()))?;
             client
                 .disconnect()

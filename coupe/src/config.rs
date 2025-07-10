@@ -158,8 +158,15 @@ pub struct Sentinel {
     pub registry: Option<ContainerRegistry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(default = "default_fluentbit_port")]
+    pub fluentbit_port: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub otel_endpoint: Option<String>,
+}
+
+fn default_fluentbit_port() -> u16 {
+    // Generate a pseudo-random 5-digit port based on process ID
+    10000 + (std::process::id() % 55536) as u16
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,6 +261,10 @@ impl Config {
         format!("coupe-{}-sentinel", self.name)
     }
 
+    pub fn fluentbit_container_name(&self) -> String {
+        format!("coupe-{}-fluentbit", self.name)
+    }
+
     pub fn function_container_name(&self, function_name: &str) -> String {
         format!("coupe-{}-function-{}", self.name, function_name)
     }
@@ -263,6 +274,13 @@ impl Config {
             .as_ref()
             .and_then(|s| s.port)
             .unwrap_or(DEFAULT_SENTINEL_PORT)
+    }
+
+    pub fn fluentbit_port(&self) -> u16 {
+        self.sentinel
+            .as_ref()
+            .map(|s| s.fluentbit_port)
+            .unwrap_or_else(default_fluentbit_port)
     }
 
     pub fn http_functions(&self) -> Vec<String> {

@@ -1,4 +1,4 @@
-use crate::{Config, CoupeError, DeploymentTarget, Result, deployment_path};
+use crate::{Config, CoupeError, DeploymentTarget, Result, deployment_path, fluentbit_path};
 use bollard::API_DEFAULT_VERSION;
 pub use bollard::Docker;
 use bollard::errors::Error as BollardError;
@@ -20,6 +20,59 @@ pub fn connect_docker(target: &DeploymentTarget) -> Result<Docker> {
         DeploymentTarget::Remote(host) => Docker::connect_with_ssh(host, 30, API_DEFAULT_VERSION),
     }
     .map_err(|e| CoupeError::Docker(e.to_string()))
+}
+
+pub async fn create_fluentbit_container(client: &Docker, config: &Config) -> Result<()> {
+    let container_name = config.fluentbit_container_name();
+    let network_name = config.stack_network_name();
+
+    let container_config = ContainerCreateBody {
+        image: Some("fluent/fluent-bit:latest".to_string()),
+        exposed_ports: Some(HashMap::from([(
+            format!("{}/tcp", config.fluentbit_port()),
+            HashMap::<(), ()>::new(),
+        )])),
+        host_config: Some(bollard::models::HostConfig {
+            restart_policy: Some(bollard::models::RestartPolicy {
+                name: Some(bollard::models::RestartPolicyNameEnum::ALWAYS),
+                ..Default::default()
+            }),
+            network_mode: Some(network_name),
+            binds: Some(vec![
+                format!(
+                    "{}:/fluent-bit/etc/fluent-bit.yaml:ro",
+                    fluentbit_path(config).display()
+                ),
+                "/var/run/docker.sock:/var/run/docker.sock".to_string(),
+                "/var/lib/docker/containers:/var/lib/docker/containers:ro".to_string(),
+            ]),
+            port_bindings: Some(HashMap::from([(
+                format!("{}/tcp", config.fluentbit_port()),
+                Some(vec![PortBinding {
+                    host_ip: Some("0.0.0.0".to_string()),
+                    host_port: Some(config.fluentbit_port().to_string()),
+                }]),
+            )])),
+            ..Default::default()
+        }),
+        cmd: Some(vec![
+            "/fluent-bit/bin/fluent-bit".to_string(),
+            "-c".to_string(),
+            "/fluent-bit/etc/fluent-bit.yaml".to_string(),
+        ]),
+        ..Default::default()
+    };
+
+    let options = CreateContainerOptionsBuilder::new()
+        .name(&container_name)
+        .build();
+
+    client
+        .create_container(Some(options), container_config)
+        .await
+        .map_err(|e| CoupeError::Docker(e.to_string()))?;
+
+    Ok(())
 }
 
 pub async fn create_sentinel_container(client: &Docker, config: &Config) -> Result<()> {
@@ -53,6 +106,10 @@ pub async fn create_sentinel_container(client: &Docker, config: &Config) -> Resu
             HashMap::<(), ()>::new(),
         )])),
         host_config: Some(bollard::models::HostConfig {
+            restart_policy: Some(bollard::models::RestartPolicy {
+                name: Some(bollard::models::RestartPolicyNameEnum::ALWAYS),
+                ..Default::default()
+            }),
             network_mode: Some(network_name),
             binds: Some(vec![
                 format!("{}:/usr/app:rw", deployment_path(config).display()),
@@ -65,6 +122,17 @@ pub async fn create_sentinel_container(client: &Docker, config: &Config) -> Resu
                     host_port: Some(config.sentinel_port().to_string()),
                 }]),
             )])),
+            log_config: Some(bollard::models::HostConfigLogConfig {
+                typ: Some("fluentd".to_string()),
+                config: Some(HashMap::from([
+                    (
+                        "fluentd-address".to_string(),
+                        format!("localhost:{}", config.fluentbit_port()),
+                    ),
+                    ("tag".to_string(), config.sentinel_container_name()),
+                    ("fluentd-async".to_string(), "true".to_string()),
+                ])),
+            }),
             ..Default::default()
         }),
         ..Default::default()
@@ -110,6 +178,17 @@ pub async fn create_function_container(
         }),
         host_config: Some(bollard::models::HostConfig {
             network_mode: Some(network_name),
+            log_config: Some(bollard::models::HostConfigLogConfig {
+                typ: Some("fluentd".to_string()),
+                config: Some(HashMap::from([
+                    (
+                        "fluentd-address".to_string(),
+                        format!("localhost:{}", config.fluentbit_port()),
+                    ),
+                    ("tag".to_string(), container_name.clone()),
+                    ("fluentd-async".to_string(), "true".to_string()),
+                ])),
+            }),
             ..Default::default()
         }),
         ..Default::default()
@@ -128,6 +207,7 @@ pub async fn create_function_container(
 }
 
 pub async fn create_containers(client: &Docker, config: &Config) -> Result<()> {
+    create_fluentbit_container(client, config).await?;
     create_sentinel_container(client, config).await?;
     for name in config.functions.keys() {
         create_function_container(client, config, name).await?;
@@ -219,12 +299,18 @@ async fn ensure_container_running(
     Ok(ContainerRunResult { coldstarted })
 }
 
+pub async fn ensure_fluentbit_running(
+    client: &Docker,
+    config: &Config,
+) -> Result<ContainerRunResult> {
+    ensure_container_running(client, &(config.fluentbit_container_name())).await
+}
+
 pub async fn ensure_sentinel_running(
     client: &Docker,
     config: &Config,
 ) -> Result<ContainerRunResult> {
-    let container_name = config.sentinel_container_name();
-    ensure_container_running(client, &container_name).await
+    ensure_container_running(client, &(config.sentinel_container_name())).await
 }
 
 pub async fn ensure_function_running(
@@ -232,8 +318,7 @@ pub async fn ensure_function_running(
     config: &Config,
     function_name: &str,
 ) -> Result<ContainerRunResult> {
-    let container_name = config.function_container_name(function_name);
-    ensure_container_running(client, &container_name).await
+    ensure_container_running(client, &(config.function_container_name(function_name))).await
 }
 
 pub async fn recreate_docker_stack(config: &Config, target: &DeploymentTarget) -> Result<()> {
@@ -241,6 +326,7 @@ pub async fn recreate_docker_stack(config: &Config, target: &DeploymentTarget) -
     teardown(&client, config).await?;
     create_network(&client, config).await?;
     create_containers(&client, config).await?;
+    ensure_fluentbit_running(&client, config).await?;
     ensure_sentinel_running(&client, config).await?;
     Ok(())
 }
@@ -276,6 +362,9 @@ pub async fn teardown(client: &Docker, config: &Config) -> Result<()> {
 
     let sentinel_container_name = config.sentinel_container_name();
     remove_container_if_exists(client, &sentinel_container_name).await?;
+
+    let fluentbit_container_name = config.fluentbit_container_name();
+    remove_container_if_exists(client, &fluentbit_container_name).await?;
 
     let network_name = config.stack_network_name();
     remove_network_if_exists(client, &network_name).await?;

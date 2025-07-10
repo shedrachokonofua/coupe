@@ -1,6 +1,8 @@
 name: example-blog
 version: 0.0.1
 description: "A simple blog"
+sentinel:
+  otel_endpoint: 10.0.3.5:4318
 functions:
   blog:
     image: coupe/example-blog:latest
