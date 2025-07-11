@@ -12,4 +12,5 @@ RUN apt-get update && \
     apt-get install -y ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/src/coupe-sentinel/target/release/coupe-sentinel /usr/local/bin/coupe-sentinel
+ENV RUST_LOG=error,coupe-sentinel=info,coupe=info
 CMD ["coupe-sentinel"]

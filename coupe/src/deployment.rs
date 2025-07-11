@@ -10,6 +10,7 @@ use std::{
 };
 use tokio::fs;
 
+#[derive(Debug)]
 pub enum DeploymentTarget {
     Local,
     Remote(String),

@@ -25,7 +25,7 @@ async fn list_sessions() -> impl IntoResponse {
     match get_all_sessions().await {
         Ok(sessions) => (StatusCode::OK, Json(sessions)).into_response(),
         Err(e) => {
-            error!(error = e.to_string().as_str(), "Failed to list sessions");
+            error!(error = %e, "Failed to list sessions");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e.to_string() })),
@@ -39,7 +39,7 @@ async fn get_config(State(config): State<Arc<Config>>) -> impl IntoResponse {
     match serde_json::to_value(&*config) {
         Ok(res) => (StatusCode::OK, Json(res)),
         Err(e) => {
-            error!(error = e.to_string().as_str(), "Failed to get config");
+            error!(error = %e, "Failed to get config");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e.to_string() })),
@@ -55,8 +55,14 @@ async fn invoke_function(
     function_name: String,
     request: Request<Body>,
 ) -> Response {
+    info!(function_name = %function_name, "Invoking function");
+
     if let Err(e) = start_session(&config, function_name.clone()).await {
-        error!(error = e.to_string().as_str(), "Failed to start session");
+        error!(
+            function_name = %function_name,
+            error = %e,
+            "Failed to start session"
+        );
         let res = Json(json!({ "error": e.to_string() }));
         return match e {
             CoupeError::Healthcheck(e) => {
@@ -67,10 +73,23 @@ async fn invoke_function(
         .into_response();
     }
 
+    info!(function_name = %function_name, "Session started successfully, making proxy request");
+
     match proxy.call(request).await {
-        Ok(Ok(res)) => res.into_response(),
+        Ok(Ok(res)) => {
+            info!(
+                function_name = %function_name,
+                status = res.status().as_u16(),
+                "Proxy request successful"
+            );
+            res.into_response()
+        }
         Ok(Err(e)) => {
-            error!(error = e.to_string().as_str(), "Proxy error");
+            error!(
+                function_name = %function_name,
+                error = %e,
+                "Proxy error - function may not be reachable"
+            );
             (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({ "error": "Proxy error", "message": e.to_string() })),
@@ -78,7 +97,11 @@ async fn invoke_function(
                 .into_response()
         }
         Err(e) => {
-            error!(error = e.to_string().as_str(), "Proxy error");
+            error!(
+                function_name = %function_name,
+                error = %e,
+                "Proxy error - should be unreachable"
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "Proxy error, should be unreachable", "message": e.to_string() })),
@@ -107,13 +130,21 @@ fn build_function_router(config: Arc<Config>) -> Result<Router> {
                     "Function {} is not an HTTP function",
                     function_name
                 )))?;
-        let reverse_proxy = axum_proxy::builder_http(
-            config.internal_function_url(&function_name).map_err(|e| {
-                CoupeError::InvalidInput(format!("Failed to get function URL: {}", e.to_string()))
-            })?,
-        )
-        .map_err(|e| CoupeError::InvalidInput(format!("Failed to build reverse proxy: {}", e)))?
-        .build(Identity);
+
+        let function_url = config.internal_function_url(&function_name).map_err(|e| {
+            CoupeError::InvalidInput(format!("Failed to get function URL: {}", e.to_string()))
+        })?;
+
+        info!(
+            function_name = %function_name,
+            function_url = %function_url,
+            path = %path,
+            "Setting up proxy for function"
+        );
+
+        let reverse_proxy = axum_proxy::builder_http(function_url)
+            .map_err(|e| CoupeError::InvalidInput(format!("Failed to build reverse proxy: {}", e)))?
+            .build(Identity);
 
         let handler_config = Arc::clone(&config);
         let handler_function_name = function_name.clone();
@@ -159,7 +190,7 @@ async fn start_function(
         ),
         Err(CoupeError::InvalidInput(e)) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
         Err(e) => {
-            error!(error = e.to_string().as_str(), "Failed to start function");
+            error!(error = %e, "Failed to start function");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e.to_string() })),
@@ -181,7 +212,7 @@ pub async fn serve_api(config: Arc<Config>) -> Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
         .map_err(|e| CoupeError::Io(e))?;
-    info!("Listening on port {}", port);
+    info!(port = port, "Sentinel API server listening");
     serve(listener, router)
         .await
         .map_err(|e| CoupeError::Io(e))?;

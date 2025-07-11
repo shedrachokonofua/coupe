@@ -4,19 +4,24 @@ use coupe::{
     Config, CoupeError, Docker, Result, connect_docker, ensure_function_running,
     stop_function_container,
 };
-use fjall::{PartitionCreateOptions, PartitionHandle};
+use dashmap::DashMap;
+use fjall::{PartitionCreateOptions, TransactionalPartitionHandle};
 use futures::future::try_join_all;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
+    fmt::Display,
     sync::{Arc, LazyLock},
     time::Duration,
 };
-use tokio::time::{Instant, sleep, timeout};
-use tracing::{error, info, instrument};
+use tokio::{
+    sync::Mutex as TokioMutex,
+    time::{Instant, sleep, timeout},
+};
+use tracing::{debug, error, info, instrument};
 
-static SESSION_STORE: LazyLock<PartitionHandle> = LazyLock::new(|| {
+static SESSION_STORE: LazyLock<TransactionalPartitionHandle> = LazyLock::new(|| {
     DB.open_partition("sessions", PartitionCreateOptions::default())
         .expect("Failed to open sessions tree")
 });
@@ -25,6 +30,17 @@ pub static DOCKER_CLIENT: LazyLock<Docker> = LazyLock::new(|| {
     connect_docker(&coupe::DeploymentTarget::Local).expect("Failed to connect to Docker")
 });
 
+type FunctionLock = Arc<TokioMutex<()>>;
+
+static FUNCTION_LOCKS: LazyLock<DashMap<String, FunctionLock>> = LazyLock::new(|| DashMap::new());
+
+async fn get_function_lock(function_name: &str) -> FunctionLock {
+    FUNCTION_LOCKS
+        .entry(function_name.to_string())
+        .or_insert_with(|| Arc::new(TokioMutex::new(())))
+        .clone()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub function_name: String,
@@ -32,6 +48,16 @@ pub struct Session {
      * Nanoseconds between the UNIX epoch and when the session ends.
      */
     pub ends_at: i128,
+}
+
+impl Display for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Session(function_name={}, ends_at={})",
+            self.function_name, self.ends_at
+        )
+    }
 }
 
 impl Session {
@@ -78,37 +104,47 @@ impl TryInto<Vec<u8>> for Session {
 
 #[instrument]
 pub async fn save_session(input_session: Session) -> Result<Session> {
-    let existing_session = SESSION_STORE
-        .get(input_session.function_name.clone())
+    let mut tx = DB.write_tx();
+    let existing_session = tx
+        .get(&SESSION_STORE, input_session.function_name.clone())
         .map_err(|e| CoupeError::Database(e.to_string()))?;
     let mut next_session = input_session.clone();
     if let Some(existing) = existing_session {
         let existing = Session::try_from(existing.as_ref())?;
-        if !existing.is_expired() && existing.ends_at > input_session.ends_at {
-            next_session = existing;
+        if !existing.is_expired() {
+            if existing.ends_at > input_session.ends_at {
+                next_session.ends_at = existing.ends_at;
+            }
         }
     }
+    info!(
+        function_name = %input_session.function_name,
+        session = %next_session,
+        "Saving session"
+    );
     let next_slice: Vec<u8> = next_session.clone().try_into()?;
-    SESSION_STORE
-        .insert(input_session.function_name, next_slice)
+    tx.insert(&SESSION_STORE, input_session.function_name, next_slice);
+    tx.commit()
         .map_err(|e| CoupeError::Database(e.to_string()))?;
     Ok(next_session)
 }
 
 #[instrument]
 pub async fn delete_session(function_name: String) -> Result<()> {
-    SESSION_STORE
-        .remove(function_name)
+    let mut tx = DB.write_tx();
+    tx.remove(&SESSION_STORE, function_name);
+    tx.commit()
         .map_err(|e| CoupeError::Database(e.to_string()))?;
     Ok(())
 }
 
 #[instrument]
 pub async fn get_session(function_name: String) -> Result<Option<Session>> {
-    let partition = SESSION_STORE
-        .get(function_name)
+    let tx = DB.read_tx();
+    let session = tx
+        .get(&SESSION_STORE, function_name)
         .map_err(|e| CoupeError::Database(e.to_string()))?;
-    let session = partition
+    let session = session
         .map(|session| Session::try_from(session.as_ref()))
         .transpose()
         .map_err(|e| CoupeError::Database(e.to_string()))?;
@@ -118,7 +154,7 @@ pub async fn get_session(function_name: String) -> Result<Option<Session>> {
 #[instrument]
 pub async fn get_all_sessions() -> Result<Vec<Session>> {
     let mut sessions = Vec::new();
-    for node in SESSION_STORE.iter() {
+    for node in DB.read_tx().iter(&SESSION_STORE) {
         if let Ok((_, session)) = node {
             sessions.push(Session::try_from(session.as_ref())?);
         }
@@ -129,7 +165,7 @@ pub async fn get_all_sessions() -> Result<Vec<Session>> {
 #[instrument]
 pub async fn get_expired_sessions() -> Result<Vec<Session>> {
     let mut sessions = Vec::new();
-    for node in SESSION_STORE.iter() {
+    for node in DB.read_tx().iter(&SESSION_STORE) {
         if let Ok((_, session)) = node {
             let session = Session::try_from(session.as_ref())?;
             if session.is_expired() {
@@ -142,6 +178,9 @@ pub async fn get_expired_sessions() -> Result<Vec<Session>> {
 
 #[instrument]
 pub async fn start_session(config: &Config, function_name: String) -> Result<Session> {
+    let function_lock = get_function_lock(&function_name).await;
+    let _lock_guard = function_lock.lock().await;
+
     let function_config =
         config
             .functions
@@ -153,7 +192,7 @@ pub async fn start_session(config: &Config, function_name: String) -> Result<Ses
     let scaling_config = function_config.scaling.clone().unwrap_or_default();
     let session_duration = Duration::from_secs(scaling_config.session_duration.unwrap_or(30));
     info!(
-        function_name = function_name.as_str(),
+        function_name = %function_name,
         duration = session_duration.as_secs(),
         "Starting session"
     );
@@ -161,11 +200,13 @@ pub async fn start_session(config: &Config, function_name: String) -> Result<Ses
     let run_result =
         ensure_function_running(&DOCKER_CLIENT, config, function_name.as_str()).await?;
     let session = save_session(Session::new(function_name.clone(), session_duration)).await?;
-    wait_for_healthcheck(&config.internal_function_healthcheck_url(function_name.as_str())?)
-        .await?;
+    if run_result.coldstarted {
+        wait_for_healthcheck(&config.internal_function_healthcheck_url(function_name.as_str())?)
+            .await?;
+    }
     let elapsed = Instant::now() - start;
     info!(
-        function_name = function_name.as_str(),
+        function_name = %function_name,
         duration = elapsed.as_secs(),
         coldstarted = run_result.coldstarted,
         "Session started"
@@ -180,35 +221,115 @@ async fn wait_for_healthcheck(url: &str) -> Result<()> {
     let retry_delay = Duration::from_millis(200);
     let request_timeout = Duration::from_secs(2);
 
-    timeout(total_timeout, async {
+    info!(
+        url = %url,
+        total_timeout_secs = total_timeout.as_secs(),
+        retry_delay_ms = retry_delay.as_millis(),
+        request_timeout_secs = request_timeout.as_secs(),
+        "Starting healthcheck"
+    );
+
+    let start_time = Instant::now();
+    let mut attempt_count = 0;
+
+    let result = timeout(total_timeout, async {
         loop {
+            attempt_count += 1;
+            let attempt_start = Instant::now();
+
+            info!(
+                url = %url,
+                attempt = attempt_count,
+                elapsed_ms = start_time.elapsed().as_millis(),
+                "Healthcheck attempt"
+            );
+
             match client.get(url).timeout(request_timeout).send().await {
-                Ok(response) if response.status().is_success() => {
-                    return Ok(());
+                Ok(response) => {
+                    let status = response.status();
+                    let attempt_duration = attempt_start.elapsed();
+
+                    if status.is_success() {
+                        info!(
+                            url = %url,
+                            attempt = attempt_count,
+                            status = status.as_u16(),
+                            attempt_duration_ms = attempt_duration.as_millis(),
+                            total_duration_ms = start_time.elapsed().as_millis(),
+                            "Healthcheck successful"
+                        );
+                        return;
+                    } else {
+                        info!(
+                            url = %url,
+                            attempt = attempt_count,
+                            status = status.as_u16(),
+                            attempt_duration_ms = attempt_duration.as_millis(),
+                            elapsed_ms = start_time.elapsed().as_millis(),
+                            "Healthcheck failed, retrying"
+                        );
+                    }
                 }
-                _ => {
-                    sleep(retry_delay).await;
+                Err(e) => {
+                    let attempt_duration = attempt_start.elapsed();
+                    info!(
+                        url = %url,
+                        attempt = attempt_count,
+                        error = %e,
+                        attempt_duration_ms = attempt_duration.as_millis(),
+                        elapsed_ms = start_time.elapsed().as_millis(),
+                        "Healthcheck request failed, retrying"
+                    );
                 }
             }
+
+            sleep(retry_delay).await;
         }
     })
-    .await
-    .map_err(|e| CoupeError::Healthcheck(e.to_string()))?
+    .await;
+
+    match result {
+        Ok(()) => {
+            info!(
+                url = %url,
+                attempts = attempt_count,
+                total_duration_ms = start_time.elapsed().as_millis(),
+                "Healthcheck completed successfully"
+            );
+            Ok(())
+        }
+        Err(_) => {
+            error!(
+                url = %url,
+                attempts = attempt_count,
+                total_duration_ms = start_time.elapsed().as_millis(),
+                timeout_secs = total_timeout.as_secs(),
+                "Healthcheck timed out"
+            );
+            Err(CoupeError::Healthcheck("Healthcheck timeout".to_string()))
+        }
+    }
 }
 
 #[instrument]
 pub async fn end_session(config: &Config, function_name: String) -> Result<()> {
-    info!(function_name = function_name.as_str(), "Ending session");
+    let function_lock = get_function_lock(&function_name).await;
+    let _lock_guard = function_lock.lock().await;
+
+    info!(function_name = %function_name, "Ending session");
+
+    delete_session(function_name.clone()).await?;
+
     stop_function_container(&DOCKER_CLIENT, config, function_name.as_str()).await?;
-    delete_session(function_name).await?;
+
     Ok(())
 }
 
 pub async fn watch_sessions(config: Arc<Config>) -> Result<()> {
     loop {
-        info!("Checking for expired sessions");
+        debug!("Checking for expired sessions");
         let expired_sessions = get_expired_sessions().await?;
-        info!(count = expired_sessions.len(), "Expired sessions count");
+        debug!(count = expired_sessions.len(), "Expired sessions found");
 
         try_join_all(
             expired_sessions
@@ -216,9 +337,10 @@ pub async fn watch_sessions(config: Arc<Config>) -> Result<()> {
                 .map(|session| {
                     let config = Arc::clone(&config);
                     async move {
-                        if let Err(e) = end_session(&config, session.function_name).await {
-                            error!(error = e.to_string().as_str(), "Failed to end session");
+                        if let Err(e) = end_session(&config, session.function_name.clone()).await {
+                            error!(error = %e, "Failed to end session");
                         }
+                        info!(function_name = %session.function_name, "Session ended");
                         Ok::<_, CoupeError>(())
                     }
                 })
